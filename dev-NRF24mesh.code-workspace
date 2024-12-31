@@ -1,0 +1,15 @@
+{
+	"folders": [
+		{
+			"name": "dev-NRF24comunicator",
+			"path": "."
+		}
+	],
+	"settings": {
+		"files.associations": {
+			"*.tcc": "cpp",
+			"cmath": "cpp",
+			"ws2812.h": "c"
+		}
+	}
+}
