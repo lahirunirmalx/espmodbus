@@ -19,19 +19,19 @@ This project implements a wireless communicator using an **ESP32**, **NRF24L01 m
 
 ## Requirements
 - **Hardware:**
-  - ESP32 Microcontroller
-  - NRF24L01 Wireless Module
-  - OLED Display (e.g., SSD1306)
-  - PS/2 Keyboard
-  - OneButton (for boot actions)
-  - Jumper wires and breadboard (or PCB)
+  - ESP32 Microcontroller https://a.aliexpress.com/_onQbULZ
+  - NRF24L01 Wireless Module https://a.aliexpress.com/_opL6Zzp
+  - OLED Display (e.g., SSD1306) **optional**
+  - PS/2 Keyboard **optional** 
+  - OneButton (for boot actions) **optional** 
+  - Jumper wires and breadboard (or PCB) 
   
 - **Libraries:**
   Install these libraries using the Arduino Library Manager:
   - `RF24` (for NRF24L01 communication)
   - `Adafruit_SSD1306` and `Adafruit_GFX` (for OLED display)
   - `OneButton` (for button management)
-  - `PS2Keyboard` (for PS/2 keyboard input)
+  - `PS2Keyboard` (for PS/2 keyboard input)  https://github.com/lahirunirmalx/PS2Keyboard
 
 ---
 
@@ -83,7 +83,7 @@ This project implements a wireless communicator using an **ESP32**, **NRF24L01 m
    - Install the required libraries in your Arduino IDE.
 
 2. **Running the Code**:
-   - Clone the repository and open the `.ino` file in Arduino IDE or PlatformIO:
+   - Clone the repository and open the `src/main.cpp` file in Arduino IDE or PlatformIO:
      ```bash
      git clone https://github.com/lahirunirmalx/NRF24Communicator.git
      ```
@@ -95,7 +95,32 @@ This project implements a wireless communicator using an **ESP32**, **NRF24L01 m
    - Use the boot button for quick actions:
      - Short press: Sends a predefined message.
      - Long press: Opens the first message in the inbox.
+4. **Key Map**
 
+| **Key**            | **Action**                                                                                     | **Conditions/State**                  |
+|---------------------|-----------------------------------------------------------------------------------------------|---------------------------------------|
+| **Enter**          | Transitions the `app` state depending on the current state:                                    | Varies by `app` state:               |
+|                   | - **NEW_MESSAGE** → **WRITE_ADDRESS**                                                          |                                       |
+|                   | - **WRITE_ADDRESS** → **SET_ADDRESS**                                                          |                                       |
+|                   | - **WRITE_MESSAGE** → **SEND_MESSAGE**                                                         |                                       |
+|                   | - **HOME** → **WRITE_ADDRESS**                                                                 |                                       |
+|                   | - **SELECT_MESSAGE** → **READ_MESSAGE** (if `messageInbox` is not empty)                       |                                       |
+|                   | - **READ_MESSAGE** → **WRITE_ADDRESS**                                                         |                                       |
+| **Tab**            | (No action is defined in the code for Tab)                                                     |                                       |
+| **Esc**            | Returns to **HOME** state.                                                                    |                                       |
+| **Page Down**      | Calls `addressDown()` when in the **WRITE_ADDRESS** state.                                      |                                       |
+| **Page Up**        | Calls `addressUp()` when in the **WRITE_ADDRESS** state.                                       |                                       |
+| **Up Arrow**       | Adjusts `selected_item` when in the **HOME** state:                                            | Only in **HOME** state.              |
+|                   | - Decreases `selected_item` by 1 (minimum 0).                                                  |                                       |
+| **Down Arrow**     | Adjusts `selected_item` when in the **HOME** state:                                            | Only in **HOME** state.              |
+|                   | - Increases `selected_item` by 1 (maximum is `messageInbox.size() - 1`).                       |                                       |
+| **Delete**         | Deletes or transitions depending on the current `app` state:                                   | Varies by `app` state:               |
+|                   | - **WRITE_MESSAGE** or **WRITE_ADDRESS**: Removes the last character from `inputText`.         |                                       |
+|                   | - **READ_MESSAGE**: Transitions to **DELETE_MESSAGE** state.                                   |                                       |
+|                   | - **NEW_MESSAGE**: Transitions to **DELETE_MESSAGE** state.                                    |                                       |
+| **Other Keys**     | Adds the key's character to `inputText` if in **WRITE_MESSAGE** or **WRITE_ADDRESS** state.     | Only if `inputText.length() < BUFFER_SIZE`. |
+
+ 
 ---
 
 ## Example Output
