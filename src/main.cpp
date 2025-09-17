@@ -1,458 +1,646 @@
 #include <Arduino.h>
-#include <SPI.h>
-#include <Wire.h>
-#include <RF24.h>
-#include <Adafruit_GFX.h>
-#include <Adafruit_SSD1306.h>
-#include <PS2Keyboard.h>
-#include <string>
-#include <sstream>
-#include <OneButton.h>
+#include <ModbusMaster.h>
+#include <WebServer.h>
+#include <WiFi.h>
 
-#include <main.h>
-#include <screen.h>
- 
-#define COMMUNICATION_ADDRESS "00001" 
+// ===== WiFi
+const char *WIFI_SSID = "YOUR_WIFI_SSID";
+const char *WIFI_PASS = "YOUR_WIFI_PASSWORD";
 
-#define HOME_SCREEN_SIZE 4
-#define TOP_MENU_PAD 2
-#define BOOT_BUTTON_PIN 0
+// ===== UART / RS485
+#define UART_RX 16
+#define UART_TX 17
+#define UART_BAUD 115200
+#define RS485_DE_RE_PIN 4
+#define USE_RS485_DIR false
 
-// Initialize the radio and display keyboard
-PS2Keyboard keyboard;
-RF24 radio(PIN_CE, PIN_CS);
-Adafruit_SSD1306 display(DISPLAY_WIDTH, DISPLAY_HEIGHT, &Wire, OLED_ADDRESS);
-OneButton bootButton(BOOT_BUTTON_PIN, true); 
-char receivedText[32] = "";
-std::string inputText  = ""; 
+// ===== Modbus
+#define MODBUS_SLAVE_ID 1
 
-std::queue<Message> messageInbox;
+// Known regs (stable)
+#define REG_SET_VOLT 0x0000   // V*100
+#define REG_SET_CURR 0x0001   // A*1000
+#define REG_OUT_VOLT 0x0002   // V*100
+#define REG_OUT_CURR 0x0003   // A*1000
+#define REG_OUT_POWER 0x0004  // W*100
+#define REG_OUT_ENABLE 0x0012 // 0/1
 
-// Define the address for communication
- uint8_t address[6] = COMMUNICATION_ADDRESS;  
-int selected_item = 0;  
-uint8_t sendAddress[6] = {0};
-char strSendAddress[7]=""; 
-bool success = true;
+// Community/experimental (may differ by FW)
+#define REG_MPPT_ENABLE 0x001F // 0/1 (medium confidence)
 
-typedef enum
-{
-     
-    INIT = 0,
-    HOME,
-    CHECK, 
-    NEW_MESSAGE, 
-    READ_MESSAGE, 
-    WRITE_ADDRESS,
-    SET_ADDRESS,
-    WRITE_MESSAGE,
-    SET_MESSAGE,
-    SEND_MESSAGE,
-    DELETE_MESSAGE,
-    SELECT_MESSAGE, 
-    ERROR
-} communicator;
+ModbusMaster node;
+WebServer server(80);
 
-communicator app = communicator::HOME;
-void setup() {
-  SPI.begin(PIN_SCK, PIN_MISO, PIN_MOSI);
-  Wire.begin(PIN_SDA, PIN_SCL);
-  keyboard.begin(PIN_DATA, PIN_IRQ); 
-  Serial.begin(115200);
-  display.begin(SSD1306_SWITCHCAPVCC, OLED_ADDRESS);
-  display.clearDisplay();
-  display.setTextSize(1);
-  display.setTextColor(WHITE);
-  display.setCursor(0, 0);
-  bootButton.attachClick(onBootButtonPressed);
-  bootButton.attachLongPressStart(onBootButtonLongPress); 
-  // Initialize the radio
-  if (!radio.begin()) {
-    display.println("Radio hardware error!");
-    display.display();
-    while (1);
-  }
+// ---------- HTML ----------
+const char INDEX_HTML[] PROGMEM = R"HTML(<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>SK120x Controller</title>
+  <style>
+    body{margin:20px;font-family:Segoe UI,Arial,sans-serif;background:#f0f0f0}
+    h1{margin:.2rem 0;text-align:center}
 
-  radio.openReadingPipe(1, address);
-  radio.setPALevel(RF24_PA_HIGH);
-  radio.setDataRate(RF24_1MBPS);
-  radio.startListening();
+    /* Panels mimic LabVIEW groups */
+    .panel{background:#fff;border:2px solid #999;border-radius:6px;padding:12px;margin:10px;box-shadow:2px 2px 5px rgba(0,0,0,.2)}
+    .title{font-weight:bold;background:#ddd;padding:4px 6px;margin:-12px -12px 8px -12px;border-bottom:2px solid #999}
+    .row{display:flex;flex-wrap:wrap;gap:16px;justify-content:space-around}
 
-  display.println("Receiver ready");
-  display.display();
-  app = communicator::HOME;
+    /* 7-seg style readouts (local only) */
+    .seven{font-family:monospace;font-size:2.2em;color:#0c0;background:#000;padding:4px 8px;border-radius:4px;display:inline-block;min-width:110px;text-align:right;letter-spacing:1px}
+    .seven.red{color:#f33}
 
-  
+    /* Gauges (simple circular face) */
+    .gWrap{display:flex;flex-direction:column;align-items:center;gap:6px}
+    .gauge{width:120px;height:120px;border-radius:50%;border:8px solid #666;position:relative;background:#222;color:#fff;display:flex;align-items:center;justify-content:center}
+    .gauge span{font-weight:bold;font-size:1.4em}
 
+    /* Buttons / inputs */
+    .controls button, .btn{padding:8px 14px;margin:4px;border-radius:6px;cursor:pointer;border:1px solid #bbb;background:#eee}
+    .controls button:hover, .btn:hover{background:#e2e2e2}
+    input[type=number], input[type=text]{padding:8px;border-radius:6px;border:1px solid #bbb;min-width:130px}
+
+    /* Charts */
+    canvas{background:#111;border:1px solid #666;border-radius:4px}
+
+    /* Scanner table */
+    .tableWrap{max-height:350px;overflow:auto;border:1px solid #ccc;border-radius:6px}
+    table{border-collapse:collapse;width:100%;background:#fff}
+    th,td{border-bottom:1px solid #eee;padding:6px 8px;text-align:left;font-size:.95em}
+    thead th{position:sticky;top:0;background:#ddd;border-bottom:2px solid #bbb;z-index:1}
+    tbody tr:nth-child(even){background:#fafafa}
+    .small{font-size:.9em;color:#666}
+    .status{margin-left:10px}
+    .ok{color:#0a0}.err{color:#a00}
+  </style>
+</head>
+<body>
+<h1>SK120x Web Controller</h1>
+
+<!-- Top row: status + setpoints -->
+<div class="row">
+  <div class="panel" style="flex:1">
+    <div class="title">Current Status</div>
+    <div class="row">
+      <div><b>Set Voltage</b><div id="setV" class="seven">--.--</div></div>
+      <div><b>Set Current</b><div id="setA" class="seven">--.---</div></div>
+      <div><b>Out Voltage</b><div id="outV" class="seven">--.--</div></div>
+      <div><b>Out Current</b><div id="outA" class="seven">--.---</div></div>
+      <div><b>Out Power</b><div id="outP" class="seven">--.--</div></div>
+    </div>
+    <div style="margin-top:10px">
+      <span><b>Output:</b> <span id="outState">-</span></span> |
+      <span><b>MPPT:</b> <span id="mppt">?</span></span>
+    </div>
+    <div class="controls">
+      <button id="toggleBtn" class="btn">Toggle Output</button>
+      <button id="refreshBtn" class="btn">Refresh</button>
+      <span id="status" class="status"></span>
+    </div>
+  </div>
+
+  <div class="panel" style="flex:1">
+    <div class="title">Setpoints</div>
+    <div class="row">
+      <div class="gWrap">
+        <div class="gauge"><span id="gaugeV">--</span>&nbsp;V</div>
+        <div>
+          <input type="number" id="newV" step="0.01" min="0" value="12.00"/>
+          <button id="applyV" class="btn">Apply V</button>
+        </div>
+      </div>
+      <div class="gWrap">
+        <div class="gauge"><span id="gaugeA">--</span>&nbsp;A</div>
+        <div>
+          <input type="number" id="newA" step="0.001" min="0" value="1.000"/>
+          <button id="applyA" class="btn">Apply A</button>
+        </div>
+      </div>
+      <div class="gWrap">
+        <div class="gauge"><span id="gaugeMPPT">MPPT</span></div>
+        <div>
+          <input type="number" id="mpptVal" step="1" min="0" max="1" value="0"/>
+          <button id="applyMPPT" class="btn">Set MPPT</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Middle row: history + histogram -->
+<div class="row">
+  <div class="panel" style="flex:1">
+    <div class="title">Temperature/Voltage History (style)</div>
+    <canvas id="chartHistory" height="200"></canvas>
+  </div>
+  <div class="panel" style="flex:1">
+    <div class="title">Histogram</div>
+    <canvas id="chartHist" height="200"></canvas>
+  </div>
+</div>
+
+<!-- Bottom row: REGISTER SCANNER -->
+<div class="panel">
+  <div class="title">Register Scanner</div>
+  <div class="row" style="align-items:end">
+    <div>
+      <label>Start (hex or dec)</label><br/>
+      <input type="text" id="scanStart" value="0x0000"/>
+    </div>
+    <div>
+      <label>End (hex or dec)</label><br/>
+      <input type="text" id="scanEnd" value="0x0080"/>
+    </div>
+    <div>
+      <button id="doScan" class="btn">Scan</button>
+      <button id="exportCSV" class="btn">Export CSV</button>
+    </div>
+    <div class="small" style="flex:1">
+      Shows raw and known interpretations. Use small ranges for fast results.
+    </div>
+  </div>
+
+  <div class="tableWrap" style="margin-top:10px">
+    <table id="scanTable">
+      <thead>
+        <tr>
+          <th>Address (hex)</th>
+          <th>Address (dec)</th>
+          <th>Raw (dec)</th>
+          <th>Known</th>
+          <th>Interpreted</th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+  </div>
+</div>
+
+<script>
+/* -------- Helpers / UI -------- */
+function setText(id,val,dp,alertLimit){
+  const el=document.getElementById(id);
+  if(val==null||isNaN(val)){ el.textContent='--'; el.classList.remove('red'); return; }
+  el.textContent=Number(val).toFixed(dp);
+  if(alertLimit && val>alertLimit) el.classList.add('red'); else el.classList.remove('red');
+}
+function showStatus(msg,ok=true){
+  const el=document.getElementById('status');
+  el.textContent=msg; el.className='status ' + (ok?'ok':'err');
+  setTimeout(()=>{el.textContent=''; el.className='status';},1500);
 }
 
- 
-
-void loop() {
-  static uint32_t sendCount = 0;
-  bootButton.tick();
-  // Check if data is available
-  //Serial.println(app);
-  if (radio.available()) {
-   Message receivedMessage; 
-   radio.read(&receivedMessage, sizeof(receivedMessage));
-   storeMessage(receivedMessage); 
-   Serial.println("message read : ");
-   app = communicator::NEW_MESSAGE;
+/* -------- Minimal local charting (no CDN) -------- */
+class LineChart {
+  constructor(canvas, opts){
+    this.c = canvas; this.ctx = canvas.getContext('2d');
+    this.volts=[]; this.amps=[];
+    this.maxPoints = (opts && opts.maxPoints) || 50;
   }
-   // Serial.println("Status :: ");
-   // Serial.println(app);
+  add(v,a){
+    this.volts.push(v); this.amps.push(a);
+    if(this.volts.length>this.maxPoints){ this.volts.shift(); this.amps.shift(); }
+  }
+  draw(){
+    const ctx=this.ctx, w=this.c.width, h=this.c.height;
+    const DPR = window.devicePixelRatio||1;
+    if(this.c.style.width===''){ this.c.style.width = w+'px'; }
+    // scale canvas for HiDPI
+    if(this.c.width !== this.c.clientWidth*DPR){ this.c.width=this.c.clientWidth*DPR; this.c.height=this.c.clientHeight*DPR; }
+    const padL=35, padR=10, padT=10, padB=18;
+    const W=this.c.width, H=this.c.height;
+    ctx.fillStyle='#111'; ctx.fillRect(0,0,W,H);
+    // axes
+    ctx.strokeStyle='#555'; ctx.lineWidth=1;
+    ctx.beginPath(); ctx.moveTo(padL, padT); ctx.lineTo(padL, H-padB); ctx.lineTo(W-padR, H-padB); ctx.stroke();
 
-  if (keyboard.available()) {
-    
-    // read the next key
-    char c = keyboard.read();
-    
-    // check for some of the special keys
-    if (c == PS2_ENTER) {  
-         switch(app) {
-          case communicator::NEW_MESSAGE:{ 
-            app = communicator::WRITE_ADDRESS;
-            break;
-          }
-          case communicator::WRITE_ADDRESS:{
-            app = communicator::SET_ADDRESS;
-            break;
-          } 
-          case communicator::WRITE_MESSAGE:{
-            app = communicator::SEND_MESSAGE;
-            break;
-          }
-          case communicator::HOME:{
-            app = communicator::WRITE_ADDRESS;
-            break;
-          }
-          case communicator::SELECT_MESSAGE:{
-            if(!messageInbox.empty()){
-               app = communicator::READ_MESSAGE;
-            }
-           
-            break;
-          }
-          case communicator::READ_MESSAGE:{
-            app = communicator::WRITE_ADDRESS;
-            break;
-          }
-         }
-    } else if (c == PS2_TAB) {
-      
-    } else if (c == PS2_ESC) {
-          app = communicator::HOME;
-    } else if (c == PS2_PAGEDOWN) {
-      switch(app) {
-          case communicator::WRITE_ADDRESS:{
-             addressDown();
-            break;
-          }
-           
-         }
-    } else if (c == PS2_PAGEUP) {
-     switch(app) {
-          case communicator::WRITE_ADDRESS:{
-            addressUp();
-            break;
-          }
-           
-         }
-    } else if (c == PS2_LEFTARROW) {
-      Serial.print("[Left]");
-    } else if (c == PS2_RIGHTARROW) {
-      Serial.print("[Right]");
-    } else if (c == PS2_UPARROW) {
-      switch(app) {
-          case communicator::HOME:{
-            selected_item = (selected_item > 0) ? selected_item - 1 : 0;
-            break;
-          }
-           
-         }
-    } else if (c == PS2_DOWNARROW) {
-      switch(app) {
-          case communicator::HOME:{
-            selected_item = (selected_item < (int)messageInbox.size() - 1) ? selected_item + 1 : (int)messageInbox.size() - 1; 
-            
-            break;
-          }
-           
-         }
-   } else if (c == PS2_DELETE) { 
-    if((app == communicator::WRITE_MESSAGE || app == communicator::WRITE_ADDRESS )){
-         if (!inputText.empty()) {
-                inputText.pop_back();   
-            }
-    }else if(app == communicator::READ_MESSAGE  ){
-        app == communicator::DELETE_MESSAGE  ;
-    }else if(app == communicator::NEW_MESSAGE){
-            app == communicator::DELETE_MESSAGE  ;
+    const n=this.volts.length;
+    if(!n) return;
+
+    const vMin=Math.min(...this.volts), vMax=Math.max(...this.volts);
+    const aMin=Math.min(...this.amps),  aMax=Math.max(...this.amps);
+    const yMin=Math.min(vMin, aMin), yMax=Math.max(vMax, aMax);
+    const range = (yMax-yMin)||1;
+
+    // grid
+    ctx.strokeStyle='#333';
+    for(let i=0;i<=4;i++){
+      const y = padT + (H-padT-padB)*i/4;
+      ctx.beginPath(); ctx.moveTo(padL,y); ctx.lineTo(W-padR,y); ctx.stroke();
     }
-   } else {
-      
-      if((app == communicator::WRITE_MESSAGE ||app == communicator::WRITE_ADDRESS )&& inputText.length() < BUFFER_SIZE){
-          inputText += c; 
+
+    const x0=padL, x1=W-padR, y0=H-padB, y1=padT;
+    const toXY = (idx,val) => {
+      const x = x0 + (x1-x0) * (idx/(Math.max(1,n-1)));
+      const y = y0 - (y0-y1) * ((val - yMin)/range);
+      return [x,y];
+    };
+
+    // volts line (yellow)
+    ctx.lineWidth=2; ctx.strokeStyle='yellow'; ctx.beginPath();
+    for(let i=0;i<n;i++){ const [x,y]=toXY(i,this.volts[i]); if(i) ctx.lineTo(x,y); else ctx.moveTo(x,y); }
+    ctx.stroke();
+
+    // amps line (cyan)
+    ctx.lineWidth=2; ctx.strokeStyle='cyan'; ctx.beginPath();
+    for(let i=0;i<n;i++){ const [x,y]=toXY(i,this.amps[i]); if(i) ctx.lineTo(x,y); else ctx.moveTo(x,y); }
+    ctx.stroke();
+
+    // legend
+    ctx.fillStyle='#ddd'; ctx.font = `${12*(window.devicePixelRatio||1)}px sans-serif`;
+    ctx.fillText('Voltage', padL+6, padT+14);
+    ctx.fillText('Current', padL+80, padT+14);
+  }
+}
+
+class BarChart {
+  constructor(canvas){
+    this.c=canvas; this.ctx=canvas.getContext('2d');
+    this.bins = new Map(); // key -> count
+  }
+  addVoltage(v){
+    const k = Math.round(v);
+    this.bins.set(k, (this.bins.get(k)||0)+1);
+  }
+  draw(){
+    const ctx=this.ctx, DPR=window.devicePixelRatio||1;
+    if(this.c.width !== this.c.clientWidth*DPR){ this.c.width=this.c.clientWidth*DPR; this.c.height=this.c.clientHeight*DPR; }
+    const W=this.c.width, H=this.c.height, padL=35, padR=10, padT=10, padB=20;
+    ctx.fillStyle='#111'; ctx.fillRect(0,0,W,H);
+    ctx.strokeStyle='#555'; ctx.lineWidth=1;
+    ctx.beginPath(); ctx.moveTo(padL,padT); ctx.lineTo(padL,H-padB); ctx.lineTo(W-padR,H-padB); ctx.stroke();
+    const keys=[...this.bins.keys()].sort((a,b)=>a-b);
+    if(!keys.length) return;
+    const maxCount = Math.max(...keys.map(k=>this.bins.get(k)));
+    const bw = (W-padL-padR)/keys.length;
+    keys.forEach((k,i)=>{
+      const count=this.bins.get(k);
+      const x = padL + i*bw + 2;
+      const h = (H-padT-padB) * (count/maxCount);
+      const y = (H-padB) - h;
+      ctx.fillStyle='lime';
+      ctx.fillRect(x, y, Math.max(1,bw-4), h);
+      // x labels sparse
+      if(i%Math.ceil(keys.length/8)===0){
+        ctx.fillStyle='#ddd'; ctx.font = `${10*DPR}px sans-serif`;
+        ctx.fillText(String(k), x, H-6);
       }
-      
-    }
-
- 
-  
+    });
+    // y label
+    ctx.fillStyle='#ddd'; ctx.font = `${12*DPR}px sans-serif`;
+    ctx.fillText('Voltage bins', padL+6, padT+14);
   }
+}
 
-  switch (app)
-  {
-   case communicator::READ_MESSAGE:{
-       auto it = messageInbox.front();
-    for (int i = 0; i < selected_item; i++) {
-        messageInbox.pop();
-        messageInbox.push(it);
-        it = messageInbox.front();
-    }
-    addressToString(it.address,strSendAddress);
-    printHomeScreen(strSendAddress,1,messageInbox.size(),messageInbox.size());  
-    //display.println("Message");
-    display.setFont(&FreeMono9pt7b); 
-    display.setCursor(0, 26); 
-    display.println(it.text); 
-    display.setFont(); 
-    break;
-  }   
-  case communicator::NEW_MESSAGE:{
-      Serial.println(" New message");
-  }  
-  case communicator::HOME:{
-    Serial.println("Start Home");
-    printHomeScreen(COMMUNICATION_ADDRESS,1,messageInbox.size(),messageInbox.size()); 
-    //display.setCursor(0, 26); 
-    //Serial.println(app);
-    if (messageInbox.empty()) {
-        display.println("<< Inbox Empty >>");
-        //return;
-    }
-    //display.setTextColor(BLACK, WHITE);
-    
+/* -------- Status fetch -------- */
+async function getStatus(){
+  try{
+    const r = await fetch('/api/status'); const j = await r.json(); if(!j.ok) throw new Error();
+    setText('setV',j.setV,2); setText('setA',j.setA,3);
+    setText('outV',j.outV,2,35); setText('outA',j.outA,3);
+    setText('outP',j.outP,2);
 
-    display.setTextSize(1);
-    display.setTextColor(WHITE);
+    document.getElementById('gaugeV').textContent = isFinite(j.setV) ? j.setV.toFixed(1) : '--';
+    document.getElementById('gaugeA').textContent = isFinite(j.setA) ? j.setA.toFixed(2) : '--';
+    document.getElementById('gaugeMPPT').textContent = (j.mppt===null)?'MPPT':'MPPT ' + (j.mppt?'ON':'OFF');
 
-    int top_pad = (selected_item >= HOME_SCREEN_SIZE) ? selected_item - TOP_MENU_PAD : 0;
-    int max_menu_index = std::min((int)messageInbox.size(), top_pad + HOME_SCREEN_SIZE);
+    document.getElementById('outState').textContent = j.outputOn?'ON':'OFF';
+    document.getElementById('mppt').textContent = (j.mppt===null)?'n/a':(j.mppt?'ON':'OFF');
 
-    auto inboxCopy = messageInbox;
-    for (int i = 0; i < top_pad; i++) {
-        inboxCopy.pop();
-    }
+    addHistory(j.outV,j.outA);
+  }catch(e){}
+}
+async function writeReg(reg,val){ const r=await fetch(`/api/write?reg=${reg}&val=${val}`,{method:'POST'}); return r.json(); }
+async function setVoltage(v){ return writeReg(0, Math.round(v*100)); }
+async function setCurrent(a){ return writeReg(1, Math.round(a*1000)); }
+async function setOutput(on){ return writeReg(0x12, on?1:0); }
+async function setMPPT(on){ return writeReg(0x1F, on?1:0); }
 
-    for (int i = top_pad; i < max_menu_index; i++) {
-        const Message &msg = inboxCopy.front();
-        inboxCopy.pop();
+document.getElementById('refreshBtn').onclick=()=>getStatus();
+document.getElementById('toggleBtn').onclick=async()=>{
+  const state = document.getElementById('outState').textContent.trim()==='ON';
+  const r = await setOutput(!state); showStatus(r.ok?'Output toggled':(r.msg||'Error'), r.ok); getStatus();
+};
+document.getElementById('applyV').onclick=async()=>{
+  const v=parseFloat(document.getElementById('newV').value); if(isNaN(v)) return showStatus('Bad voltage',false);
+  const r=await setVoltage(v); showStatus(r.ok?'Voltage set':(r.msg||'Error'), r.ok); getStatus();
+};
+document.getElementById('applyA').onclick=async()=>{
+  const a=parseFloat(document.getElementById('newA').value); if(isNaN(a)) return showStatus('Bad current',false);
+  const r=await setCurrent(a); showStatus(r.ok?'Current set':(r.msg||'Error'), r.ok); getStatus();
+};
+document.getElementById('applyMPPT').onclick=async()=>{
+  const v=parseInt(document.getElementById('mpptVal').value); if(isNaN(v)||v<0||v>1) return showStatus('MPPT must be 0 or 1',false);
+  const r=await setMPPT(v===1); showStatus(r.ok?'MPPT set':(r.msg||'Error'), r.ok); getStatus();
+};
 
-        display.setTextColor(i == selected_item ? BLACK : WHITE, WHITE);
-        char menuLine[20];
-        char output1[7];
-        char output2[14];
-        char output3[2]="";
-        addressToString(msg.address,output1);
-        trim_string(output2, msg.text,9);
-        if(!msg.isRead){
-          output3[0] ='*';
-          output3[1] ='\0';
-        }
-        snprintf(menuLine, sizeof(menuLine), "[%6s] %s %-1s", output1, output2,output3);
-        display.println(menuLine);
-    }
-    break;
-  } 
-   
-  case communicator::WRITE_ADDRESS:{
-    printHomeScreen(COMMUNICATION_ADDRESS,1,messageInbox.size(),messageInbox.size()); 
-     if(inputText.empty()){
-      inputText = strSendAddress;
-     }
-     display.println("Address");
-     display.setTextSize(2); 
-     display.setCursor(10, 25); 
-     display.println(inputText.c_str());
-     
-    break;
-  } 
-  case communicator::SET_ADDRESS:{
-    printHomeScreen(COMMUNICATION_ADDRESS,1,messageInbox.size(),messageInbox.size()); 
-     if (inputText.length() == 5) {  
-      stringToAddress(inputText,sendAddress); 
-      app= communicator::WRITE_MESSAGE; 
-      inputText ="";
-     }else{
-      app= communicator::WRITE_ADDRESS;
-     }
-    
-    break;
-  } 
-  case communicator::WRITE_MESSAGE:{
-    addressToString(sendAddress,strSendAddress);
-    printHomeScreen(strSendAddress,1,messageInbox.size(),inputText.size());  
-    //display.println("Message");
-    display.setFont(&FreeMono9pt7b); 
-    display.setCursor(0, 26); 
-    display.println(inputText.c_str()); 
-    display.setFont(); 
-      //app= communicator::ERROR;
-    break;
+/* -------- Charts: local renderers -------- */
+const histCanvas=document.getElementById('chartHistory');
+const barCanvas=document.getElementById('chartHist');
+const historyChart = new LineChart(histCanvas,{maxPoints:50});
+const voltHist = new BarChart(barCanvas);
+
+function addHistory(v,a){
+  if(!isFinite(v)||!isFinite(a)) return;
+  historyChart.add(v,a);
+  historyChart.draw();
+  voltHist.addVoltage(v);
+  voltHist.draw();
+}
+
+/* -------- Register Scanner -------- */
+function toHex(n){return '0x'+('0000'+n.toString(16)).slice(-4).toUpperCase();}
+function parseAddr(s){
+  s=s.trim();
+  if(s.startsWith('0x')||s.startsWith('0X')) return parseInt(s,16);
+  return parseInt(s,10);
+}
+async function doScan(){
+  const s=parseAddr(document.getElementById('scanStart').value);
+  const e=parseAddr(document.getElementById('scanEnd').value);
+  if(!Number.isInteger(s)||!Number.isInteger(e)||e<s){ showStatus('Bad range',false); return; }
+  const r=await fetch(`/api/scan?start=${encodeURIComponent(document.getElementById('scanStart').value)}&end=${encodeURIComponent(document.getElementById('scanEnd').value)}`);
+  const j=await r.json();
+  if(!j.ok){ showStatus(j.msg||'Scan error',false); return; }
+
+  const tbody=document.querySelector('#scanTable tbody');
+  tbody.innerHTML='';
+  j.rows.forEach(x=>{
+    const tr=document.createElement('tr');
+    tr.innerHTML = `
+      <td>${toHex(x.addr)}</td>
+      <td>${x.addr}</td>
+      <td>${x.dec}</td>
+      <td>${x.meaning||''}</td>
+      <td>${x.interpretation||''}</td>`;
+    tbody.appendChild(tr);
+  });
+}
+document.getElementById('doScan').onclick=doScan;
+
+/* Export CSV for scanner */
+document.getElementById('exportCSV').onclick=()=>{
+  const rows=[['addr_hex','addr_dec','raw_dec','known','interpreted']];
+  document.querySelectorAll('#scanTable tbody tr').forEach(tr=>{
+    const cols=[...tr.children].map(td=>td.textContent.replaceAll(',', ''));
+    rows.push(cols);
+  });
+  const csv=rows.map(r=>r.join(',')).join('\n');
+  const blob=new Blob([csv],{type:'text/csv'});
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(blob);
+  a.download='sk120x_scan.csv';
+  a.click();
+  URL.revokeObjectURL(a.href);
+};
+
+/* -------- Kickoff -------- */
+setInterval(getStatus,1000);
+getStatus();
+</script>
+</body>
+</html>
+)HTML";
+
+
+// ---------- RS485 Direction ----------
+void preTransmission() {
+#if USE_RS485_DIR
+digitalWrite(RS485_DE_RE_PIN, HIGH);
+delayMicroseconds(10);
+#endif
+}
+void postTransmission() {
+#ifdef USE_RS485_DIR
+ delayMicroseconds(10);
+  digitalWrite(RS485_DE_RE_PIN, LOW);
+#endif
+}
+
+// ---------- Helpers ----------
+bool mbReadU16(uint16_t reg, uint16_t &out) {
+  uint8_t rc = node.readHoldingRegisters(reg, 1);
+  if (rc == node.ku8MBSuccess) {
+    out = node.getResponseBuffer(0);
+    node.clearResponseBuffer();
+    return true;
   }
-  case communicator::SEND_MESSAGE:{ 
-     Serial.println("start sending message ...");
-    addressToString(sendAddress,strSendAddress);
-    Message sendMessage;
-    std::memcpy(sendMessage.address, address, 6);
-    std::strncpy(sendMessage.text, inputText.c_str(), MAX_STRING_LENGTH);
-    inputText ="";
-    radio.stopListening(); 
-     
+  return false;
+}
+bool mbWriteU16(uint16_t reg, uint16_t val) {
+  uint8_t rc = node.writeSingleRegister(reg, val);
+  return rc == node.ku8MBSuccess;
+}
+static bool parseNum(const String &s, uint16_t &out) {
+  char *end = nullptr;
+  uint32_t v = (s.startsWith("0x") || s.startsWith("0X"))
+                   ? strtoul(s.c_str(), &end, 16)
+                   : strtoul(s.c_str(), &end, 10);
+  if (end == s.c_str())
+    return false;
+  out = (uint16_t)v;
+  return true;
+}
 
-    radio.openWritingPipe(sendAddress);
-    radio.setRetries(0, 2);
-     success = radio.write(&sendMessage, sizeof(sendMessage));
-    
-     app = communicator::HOME;
-    if (success) {
-      Serial.println("success");
-     app = communicator::HOME;
-     radio.startListening();
-       uint8_t arc = radio.getARC();
-        printHomeScreen(strSendAddress,1,arc,arc); 
-        display.setFont(&FreeMono9pt7b); 
-    display.setCursor(0, 26); 
-    display.println("SENT"); 
-    display.setFont(); 
-    }else{
-      sendCount ++;
-       Serial.println("fail");
-       printHomeScreen(strSendAddress,1,sendCount,messageInbox.size());  
-       //display.println("Message");
-    display.setFont(&FreeMono9pt7b); 
-    display.setCursor(0, 30); 
-    display.println("ERROR ..."); 
-    display.setFont();   
-    app = communicator::ERROR; 
-    }
-     
-      //app= communicator::ERROR;
-    break;
+// ---------- HTTP ----------
+void sendJSON(const String &s) { server.send(200, "application/json", s); }
+
+void handleIndex() { server.send_P(200, "text/html", INDEX_HTML); }
+
+void handleStatus() {
+  uint16_t sV = 0, sA = 0, oV = 0, oA = 0, oP = 0, outE = 0, mppt = 0;
+  bool ok = true;
+  ok &= mbReadU16(REG_SET_VOLT, sV);
+  ok &= mbReadU16(REG_SET_CURR, sA);
+  ok &= mbReadU16(REG_OUT_VOLT, oV);
+  ok &= mbReadU16(REG_OUT_CURR, oA);
+  ok &= mbReadU16(REG_OUT_POWER, oP);
+  bool mpptOk = mbReadU16(REG_MPPT_ENABLE, mppt); // experimental; may fail
+
+  String json = "{";
+  json += "\"ok\":";
+  json += ok ? "true" : "false";
+  json += ",";
+  json += "\"setV\":";
+  json += String(sV / 100.0f, 2);
+  json += ",";
+  json += "\"setA\":";
+  json += String(sA / 1000.0f, 3);
+  json += ",";
+  json += "\"outV\":";
+  json += String(oV / 100.0f, 2);
+  json += ",";
+  json += "\"outA\":";
+  json += String(oA / 1000.0f, 3);
+  json += ",";
+  json += "\"outP\":";
+  json += String(oP / 100.0f, 2);
+  json += ",";
+  if (mbReadU16(REG_OUT_ENABLE, outE)) {
+    json += "\"outputOn\":";
+    json += (outE == 1 ? "true" : "false");
+    json += ",";
+  } else {
+    json += "\"outputOn\":null,";
   }
+  if (mpptOk) {
+    json += "\"mppt\":";
+    json += (mppt ? "true" : "false");
+  } else {
+    json += "\"mppt\":null";
+  }
+  json += "}";
+  sendJSON(json);
+}
+
+void handleWrite() {
+  if (!server.hasArg("reg") || !server.hasArg("val")) {
+    server.send(400, "application/json",
+                "{\"ok\":false,\"msg\":\"reg & val required\"}");
+    return;
+  }
+  uint16_t reg = (uint16_t)strtoul(server.arg("reg").c_str(), nullptr, 0);
+  uint16_t val = (uint16_t)strtoul(server.arg("val").c_str(), nullptr, 0);
+  bool ok = mbWriteU16(reg, val);
+  server.send(ok ? 200 : 500, "application/json",
+              String("{\"ok\":") +
+                  (ok ? "true}" : "false,\"msg\":\"write failed\"}"));
+}
+
+String meaningFor(uint16_t addr) {
+  switch (addr) {
+  case REG_SET_VOLT:
+    return "Vset (V*100)";
+  case REG_SET_CURR:
+    return "Iset (A*1000)";
+  case REG_OUT_VOLT:
+    return "Vout (V*100)";
+  case REG_OUT_CURR:
+    return "Iout (A*1000)";
+  case REG_OUT_POWER:
+    return "Pout (W*100)";
+  case REG_OUT_ENABLE:
+    return "Output Enable (0/1)";
+  case REG_MPPT_ENABLE:
+    return "MPPT Enable (0/1) [exp]";
   default:
-    break;
-  }
- 
-  display.display(); 
-}
-
-void printMenuTitle(const char *top_menu) {
-  display.clearDisplay();
-  display.setTextSize(1); 
-  display.setCursor(0, 0);
-  static char menuName1[8] = "";
-  trim_string(menuName1,top_menu,8);
-  static char menuName[10] = "";
-  sprintf(menuName, "< %-8s", F(menuName1));
-  display.println(menuName);
-  display.setTextSize(1); 
-  
-}
-void printHomeScreen(const char *top_menu,uint32_t ch,uint32_t second_bar,uint32_t count){
-   display.clearDisplay();
-   display.setTextSize(1); 
-   display.setCursor(0, 0);
-   display.setTextColor(WHITE);
-   static char row1[20] = "";
-   sprintf(row1, "[Node] %-6s [ch] %d", F(top_menu),ch);
-   display.println(row1);
-   static char row2[20] = "";
-   std::string  bar = getBarString(second_bar);
-   sprintf(row2, "[%15s]  %02d", F(bar.c_str()),count);
-   display.println(row2);
- 
-}
-
-void trim_string(char *str, const char *org, uint32_t length) {
-  strcpy(str, org);
-  if (strlen(org) > length) {
-    str[length] = '\0'; // Null-terminate the string at the desired length
+    return "";
   }
 }
 
-std::string getBarString(uint32_t length) {
-    if (length <= 0) {
-        return "";  
-    }
-    return std::string(length, '='); 
+String interpretFor(uint16_t addr, uint16_t raw) {
+  switch (addr) {
+  case REG_SET_VOLT:
+  case REG_OUT_VOLT:
+    return String(raw / 100.0f, 2) + " V";
+  case REG_SET_CURR:
+  case REG_OUT_CURR:
+    return String(raw / 1000.0f, 3) + " A";
+  case REG_OUT_POWER:
+    return String(raw / 100.0f, 2) + " W";
+  case REG_OUT_ENABLE:
+    return raw ? "ON" : "OFF";
+  case REG_MPPT_ENABLE:
+    return raw ? "ON" : "OFF";
+  default:
+    return "";
+  }
 }
 
-void storeMessage(const Message& receivedMsg) {
-    if (messageInbox.size() >= MAX_MESSAGES) {  
-        messageInbox.pop();
-    } 
-    messageInbox.push(receivedMsg);
-}
-void addressToString(const uint8_t address[6], char *output) { 
-    for (int i = 0; i < 6; i++) {
-        output[i] = (char)address[i];
+void handleScan() {
+  uint16_t start = 0x0000, end = 0x0080;
+  if (server.hasArg("start")) {
+    if (!parseNum(server.arg("start"), start)) {
+      server.send(400, "application/json",
+                  "{\"ok\":false,\"msg\":\"bad start\"}");
+      return;
     }
-    output[6] = '\0';
-}
-void stringToAddress(const std::string &input, uint8_t address[6]) { 
-    for (int i = 0; i < input.length(); ++i) {  
-        address[i] = (int)input[i];
-        
-    }  
+  }
+  if (server.hasArg("end")) {
+    if (!parseNum(server.arg("end"), end)) {
+      server.send(400, "application/json",
+                  "{\"ok\":false,\"msg\":\"bad end\"}");
+      return;
+    }
+  }
+  if (end < start || (end - start) > 256) {
+    server.send(400, "application/json",
+                "{\"ok\":false,\"msg\":\"range too large\"}");
+    return;
+  }
+
+  String json = "{\"ok\":true,\"rows\":[";
+  bool first = true;
+  for (uint16_t reg = start; reg <= end; reg++) {
+    uint16_t v = 0;
+    uint8_t rc = node.readHoldingRegisters(reg, 1);
+    if (rc == node.ku8MBSuccess) {
+      v = node.getResponseBuffer(0);
+      node.clearResponseBuffer();
+      if (!first)
+        json += ",";
+      first = false;
+      String m = meaningFor(reg);
+      String i = interpretFor(reg, v);
+      json += "{\"addr\":" + String(reg) + ",\"dec\":" + String(v);
+      if (m.length()) {
+        json += ",\"meaning\":\"" + m + "\"";
+      }
+      if (i.length()) {
+        json += ",\"interpretation\":\"" + i + "\"";
+      }
+      json += "}";
+    }
+    delay(5);
+  }
+  json += "]}";
+  sendJSON(json);
 }
 
-void addressUp() {
-    int number =0;
-    if(!inputText.empty()){
-       number = std::stoi(inputText);
-    }   
-    number++;                    
-    inputText = std::to_string(number);  
- 
-    while (inputText.length() < 5) {
-        inputText = "0" + inputText;
-    }
+void notFound() { server.send(404, "text/plain", "Not found"); }
+
+void connectWiFi() {
+  WiFi.mode(WIFI_STA);
+  WiFi.begin(WIFI_SSID, WIFI_PASS);
+  Serial.print("Connecting to WiFi");
+  unsigned long t0 = millis();
+  while (WiFi.status() != WL_CONNECTED && millis() - t0 < 20000) {
+    delay(500);
+    Serial.print(".");
+  }
+  Serial.println();
+  if (WiFi.status() == WL_CONNECTED) {
+    Serial.print("WiFi OK, IP: ");
+    Serial.println(WiFi.localIP());
+  } else {
+    Serial.println("WiFi failed; starting AP 'SK120x-ESP32'...");
+    WiFi.softAP("SK120x-ESP32");
+    Serial.print("AP IP: ");
+    Serial.println(WiFi.softAPIP());
+  }
 }
 
- 
-void addressDown() {
-    int number =0;
-    if(!inputText.empty()){
-       number = std::stoi(inputText);
-    }   
-    if (number > 0) {  
-        number--; 
-    }
-    inputText = std::to_string(number);  
- 
-    while (inputText.length() < 5) {
-        inputText = "0" + inputText;
-    }
+void setup() {
+  Serial.begin(115200);
+  delay(100);
+  Serial2.begin(UART_BAUD, SERIAL_8N1, UART_RX, UART_TX);
+#if USE_RS485_DIR
+  pinMode(RS485_DE_RE_PIN, OUTPUT);
+  digitalWrite(RS485_DE_RE_PIN, LOW);
+#endif
+  node.begin(MODBUS_SLAVE_ID, Serial2);
+  node.preTransmission(preTransmission);
+  node.postTransmission(postTransmission);
+
+  connectWiFi();
+  server.on("/", HTTP_GET, handleIndex);
+  server.on("/api/status", HTTP_GET, handleStatus);
+  server.on("/api/write", HTTP_POST, handleWrite);
+  server.on("/api/scan", HTTP_GET, handleScan);
+  server.onNotFound(notFound);
+  server.begin();
+  Serial.println("HTTP server started.");
 }
 
- 
-void onBootButtonPressed() {
-   stringToAddress("00001",sendAddress);
-   long time = millis();
-   inputText = "PING @ " + std::to_string(time);
-   app = communicator::SEND_MESSAGE;
-}
-
- 
-void onBootButtonLongPress() {
-    if(messageInbox.empty()){
-       onBootButtonPressed();
-    }
-    else{
-      selected_item = 0;
-    app = communicator::READ_MESSAGE;
-    }
-}
+void loop() { server.handleClient(); }
