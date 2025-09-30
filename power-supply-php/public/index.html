@@ -1,0 +1,484 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Power Supply Monitor & Control (2-Channel)</title>
+<style>
+  :root{
+    --bg:#e6e6e6;
+    --panel:#bdbdbd;
+    --bezel:#8e8e8e;
+    --ok:#4caf50;
+    --bad:#e53935;
+    --accent:#ffca28;
+    --lit:#ffeb3b;
+    --text:#202124;
+    --off:#616161;
+  }
+  html,body{height:100%;margin:0;background:#f2f2f2;color:var(--text);font:14px/1.35 system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif}
+  .app{max-width:1200px;margin:18px auto;padding:18px;border-radius:12px;background:var(--bg);box-shadow:0 10px 30px rgba(0,0,0,.12), inset 0 2px 0 rgba(255,255,255,.6)}
+  h1{margin:0 0 14px;font-weight:700;letter-spacing:.2px}
+  .topbar{display:flex;gap:12px;align-items:center;justify-content:space-between;margin-bottom:10px}
+  .chip{display:inline-flex;align-items:center;gap:8px;padding:8px 12px;border-radius:999px;background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.08)}
+  .status-dot{width:10px;height:10px;border-radius:50%;background:var(--off)}
+  .status-ok{background:var(--ok)}
+  .status-bad{background:var(--bad)}
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+  .card{background:linear-gradient(#d7d7d7,#c6c6c6);border:1px solid var(--bezel);border-radius:10px;padding:14px;box-shadow:inset 0 4px 8px rgba(0,0,0,.08)}
+  .row{display:grid;grid-template-columns:repeat(12,1fr);gap:12px;margin:5px}
+  .section-title{font-weight:700;margin:2px 0 10px;text-transform:uppercase;font-size:12px;letter-spacing:.08em;color:#444}
+  .stack{display:flex;flex-direction:column;gap:8px}
+  .sevenseg{font:700 40px/1 "Roboto Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;color:#c5ff31;
+            text-shadow:0 0 8px rgba(197,255,49,.75), 0 0 18px rgba(197,255,49,.35), 0 0 2px #000;background:#10130f;padding:10px 12px;border-radius:8px;
+            display:flex;justify-content:space-between;align-items:center;letter-spacing:.06em}
+  .sevenseg small{font-size:12px;color:#a2a2a2;text-shadow:none}
+  .toggle{cursor:pointer;user-select:none;border:none;border-radius:12px;padding:10px 16px;font-weight:700}
+  .toggle.lit{background:var(--ok);color:#042d0a;box-shadow:0 0 14px rgba(76,175,80,.55) inset, 0 3px 8px rgba(0,0,0,.2)}
+  .toggle.dim{background:#444;color:#ddd;box-shadow:inset 0 0 0 2px #666}
+  .btn{cursor:pointer;border:none;border-radius:8px;padding:10px 14px;font-weight:600;background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.12)}
+  .btn.primary{background:#ffd54f}
+  .knob-wrap{display:flex;gap:12px;align-items:center}
+  .knob{width:120px;height:120px;border-radius:50%;background:radial-gradient(circle at 35% 35%, #fafafa, #cfcfcf);box-shadow:inset 0 10px 18px rgba(0,0,0,.2), 0 2px 8px rgba(0,0,0,.25);position:relative}
+  .knob:after{content:"";position:absolute;inset:12px;border-radius:50%;background:radial-gradient(circle at 30% 30%, #fff, #dbdbdb)}
+  .needle{position:absolute;left:50%;top:50%;width:4px;height:48px;background:#0b0e0c;transform-origin:50% 90%;border-radius:2px;z-index:1}
+  .knob .tick{position:absolute;left:50%;top:50%;width:2px;height:8px;background:#333;transform-origin:50% 58px}
+  .readinput{display:flex;align-items:center;gap:6px}
+  .readinput input{width:110px;font:600 18px/1.2 ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;padding:8px 10px;border-radius:8px;border:1px solid #9f9f9f;background:#fff}
+  .meter{width:240px;height:140px;position:relative;background:#efefef;border-radius:10px;border:1px solid #9e9e9e;box-shadow:inset 0 4px 8px rgba(0,0,0,.1)}
+  .gaugeCanvas{position:absolute;left:0;top:0}
+  .legend{font-size:12px;color:#555}
+  .graph{background:#111;border-radius:8px;border:1px solid #444;padding:8px}
+  canvas#lineCh1,canvas#lineCh2{width:100%;height:160px;display:block}
+  .footerbar{display:flex;gap:12px;align-items:center;justify-content:space-between;margin-top:14px}
+  .switch{--w:56px;--h:30px;position:relative;width:var(--w);height:var(--h);background:#454545;border-radius:999px;cursor:pointer;box-shadow:inset 0 0 0 2px #666}
+  .switch .kn{position:absolute;top:2px;left:2px;width:26px;height:26px;border-radius:50%;background:#eee;transition:.15s}
+  .switch.on{background:#5fc769;box-shadow:inset 0 0 0 2px #2b6b34}
+  .switch.on .kn{left:28px;background:#fff}
+  .smallnote{font-size:12px;color:#666}
+  .badgelike{background:#fff;border-radius:6px;padding:6px 8px;border:1px solid #c7c7c7}
+</style>
+</head>
+<body>
+  <div class="app">
+    <div class="topbar">
+      <h1>Power Supply – Monitor & Control</h1>
+      <div class="chip"><span id="sysStatusDot" class="status-dot"></span> <span id="sysStatusText">connecting…</span></div>
+    </div>
+
+    <div class="card" style="margin-bottom:14px">
+      <div class="section-title">Global</div>
+      <div style="display:flex;gap:14px;align-items:center;flex-wrap:wrap">
+        <button id="trakToggle" class="toggle dim" title="Link channel controls">LINK</button>
+        <div style="margin-left:auto;display:flex;gap:8px;align-items:center">
+          <button id="downloadCsv" class="btn">Download CSV</button>
+          <button id="forceRefresh" class="btn">Refresh Now</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="grid">
+      <!-- Channel 1 -->
+      <div class="card" id="ch1Card">
+        <div class="section-title">Channel 1</div>
+        <div class="row">
+          <div class="stack" style="grid-column: span 12">
+            <div class="sevenseg"><span id="vout1">0.000</span> <small>Vout</small></div>
+            <div class="sevenseg"><span id="iout1">0.000</span> <small>Iout</small></div>
+            <div class="sevenseg"><span id="pout1">0.000</span> <small>Power</small></div>
+            <div style="display:flex;gap:10px;align-items:center">
+              <button id="oe1" class="toggle dim">Output: OFF</button>
+              <span class="legend">Status: <b id="status1">—</b></span>
+            </div>
+          </div>
+        </div>
+        <div class="row">
+          <div class="stack" style="grid-column: span 12">
+            <div class="knob-wrap">
+              <div class="knob" data-ch="1" data-kind="vset">
+                <div class="needle" id="kn1v"></div>
+              </div>
+              <div class="readinput">
+                <label>Vset (mV)</label>
+                <input id="vset1" type="number" step="1" min="0" value="0">
+                <button class="btn primary" data-action="applyV" data-ch="1">Apply</button>
+              </div>
+            </div>
+            <div class="knob-wrap">
+              <div class="knob" data-ch="1" data-kind="iset">
+                <div class="needle" id="kn1i"></div>
+              </div>
+              <div class="readinput">
+                <label>Iset (mA)</label>
+                <input id="iset1" type="number" step="1" min="0" value="0">
+                <button class="btn primary" data-action="applyI" data-ch="1">Apply</button>
+              </div>
+            </div>
+          </div>
+        </div>
+          <div class="row">
+          <div class="stack" style="grid-column: span 12">
+            <div style="display:flex;gap:63px;flex-wrap:wrap">
+              <div class="meter">
+                <canvas class="gaugeCanvas" id="gV1" width="240" height="140"></canvas>
+              </div>
+              <div class="meter">
+                <canvas class="gaugeCanvas" id="gI1" width="240" height="140"></canvas>
+              </div>
+            </div>
+            <div class="graph">
+              <canvas id="lineCh1" width="1100" height="180"></canvas>
+            </div>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- Channel 2 -->
+      <div class="card" id="ch2Card">
+        <div class="section-title">Channel 2</div>
+        <div class="row">
+          <div class="stack" style="grid-column: span 12">
+            <div class="sevenseg"><span id="vout2">0.000</span> <small>Vout</small></div>
+            <div class="sevenseg"><span id="iout2">0.000</span> <small>Iout</small></div>
+            <div class="sevenseg"><span id="pout2">0.000</span> <small>Power</small></div>
+            <div style="display:flex;gap:10px;align-items:center">
+              <button id="oe2" class="toggle dim">Output: OFF</button>
+              <span class="legend">Status: <b id="status2">—</b></span>
+            </div>
+          </div>
+        </div><div class="row">
+          <div class="stack" style="grid-column: span 12">
+            <div class="knob-wrap">
+              <div class="knob" data-ch="2" data-kind="vset">
+                <div class="needle" id="kn2v"></div>
+              </div>
+              <div class="readinput">
+                <label>Vset (mV)</label>
+                <input id="vset2" type="number" step="1" min="0" value="0">
+                <button class="btn primary" data-action="applyV" data-ch="2">Apply</button>
+              </div>
+            </div>
+            <div class="knob-wrap">
+              <div class="knob" data-ch="2" data-kind="iset">
+                <div class="needle" id="kn2i"></div>
+              </div>
+              <div class="readinput">
+                <label>Iset (mA)</label>
+                <input id="iset2" type="number" step="1" min="0" value="0">
+                <button class="btn primary" data-action="applyI" data-ch="2">Apply</button>
+              </div>
+            </div>
+          </div>
+
+      </div>
+        <div class="row">
+          <div class="stack" style="grid-column: span 12">
+            <div style="display:flex;gap:63px;flex-wrap:wrap">
+              <div class="meter">
+                <canvas class="gaugeCanvas" id="gV2" width="240" height="140"></canvas>
+              </div>
+              <div class="meter">
+                <canvas class="gaugeCanvas" id="gI2" width="240" height="140"></canvas>
+              </div>
+            </div>
+            <div class="graph">
+              <canvas id="lineCh2" width="1100" height="180"></canvas>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div><!-- /grid -->
+
+    <div class="footerbar">
+      <div class="chip"><span>Polling:</span> <span id="pollingBadge">1.0 s</span></div>
+      <div class="chip"><b>API</b> <code>/getStatus</code></div>
+    </div>
+  </div><!-- /app -->
+
+<script>
+/* ========= Helpers ========= */
+const $ = (sel, ctx=document) => ctx.querySelector(sel);
+const $all = (sel, ctx=document) => Array.from(ctx.querySelectorAll(sel));
+
+function clamp(n, a, b){ return Math.max(a, Math.min(b, n)); }
+function map(n, a1, a2, b1, b2){ return b1 + (n-a1)*(b2-b1)/(a2-a1); }
+
+/* ========= Gauges (canvas semicircle) ========= */
+function drawGauge(canvas, value, min, max, label, color='lime'){
+  const ctx = canvas.getContext('2d');
+  const W = canvas.width, H = canvas.height;
+  ctx.clearRect(0,0,W,H);
+  const cx=W/2, cy=H*0.95, r=Math.min(W,H*1.2)*0.45;
+  // arc background
+  ctx.lineWidth=12; ctx.strokeStyle='#c7c7c7';
+  ctx.beginPath(); ctx.arc(cx,cy,r,Math.PI,2*Math.PI); ctx.stroke();
+  // ticks
+  ctx.save(); ctx.translate(cx,cy);
+  ctx.rotate(Math.PI);
+  ctx.strokeStyle='#666'; ctx.lineWidth=2;
+  const ticks=10;
+  for(let i=0;i<=ticks;i++){
+    ctx.beginPath(); ctx.moveTo(r-8,0); ctx.lineTo(r,0); ctx.stroke();
+    ctx.rotate(Math.PI/ticks);
+  }
+  ctx.restore();
+  // needle
+  const ang = map(clamp(value,min,max), min, max, Math.PI, 2*Math.PI);
+  ctx.save(); ctx.translate(cx,cy); ctx.rotate(ang);
+  ctx.fillStyle='#263238';
+  ctx.beginPath(); ctx.moveTo(-4,0); ctx.lineTo(4,0); ctx.lineTo(1,-r+16); ctx.lineTo(-1,-r+16); ctx.closePath(); ctx.fill();
+  ctx.restore();
+  // text
+  ctx.fillStyle='#222'; ctx.font='12px system-ui';
+  ctx.textAlign='center';
+  ctx.fillText(label, cx, H-10);
+  ctx.font='bold 16px ui-monospace';
+  ctx.fillText(value.toFixed(3), cx, H-28);
+}
+
+/* ========= Line graph (last 100 samples) ========= */
+class RingSeries{
+  constructor(size=100){this.size=size;this.x=[];this.y=[];}
+  push(v){
+    const t = Date.now();
+    this.x.push(t);
+    this.y.push(v);
+    if(this.x.length>this.size){this.x.shift();this.y.shift();}
+  }
+}
+function drawLine(canvas, series, color='#8bc34a'){
+  const ctx = canvas.getContext('2d');
+  const W=canvas.width, H=canvas.height;
+  ctx.clearRect(0,0,W,H);
+  // bg grid
+  ctx.strokeStyle='#2a2a2a'; ctx.lineWidth=1;
+  for(let i=0;i<10;i++){ ctx.beginPath(); ctx.moveTo(0, i*H/10); ctx.lineTo(W,i*H/10); ctx.stroke(); }
+  if(series.y.length<2) return;
+  const ymin = Math.min(...series.y), ymax = Math.max(...series.y);
+  const x0=series.x[0], x1=series.x[series.x.length-1];
+  ctx.strokeStyle=color; ctx.lineWidth=2;
+  ctx.beginPath();
+  series.y.forEach((v,i)=>{
+    const x = map(series.x[i], x0, x1, 10, W-10);
+    const y = map(v, ymax, ymin, 10, H-10);
+    if(i===0) ctx.moveTo(x,y); else ctx.lineTo(x,y);
+  });
+  ctx.stroke();
+}
+
+/* ========= Rotary knob handling ========= */
+function setKnobAngle(el, val, min=0, max=5000){ // 0..5V (mV) or 0..5000 mA
+  const needle = el.querySelector('.needle');
+  const deg = map(clamp(val,min,max),min,max,-135,135);
+  needle.style.transform = `translate(-50%,-90%) rotate(${deg}deg)`;
+}
+
+/* ========= API ========= */
+const API = {
+  async getStatus(){
+    const res = await fetch('/getStatus',{cache:'no-store'});
+    if(!res.ok) throw new Error('GET failed');
+    return res.json();
+  },
+  async postUpdate(body){
+    const res = await fetch('/getStatus',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+    if(!res.ok) throw new Error('POST failed');
+    return res.json().catch(()=> ({}));
+  }
+};
+
+/* ========= State ========= */
+const state = {
+  trak:false,
+  series:{
+    ch1:{vout:new RingSeries(100), iout:new RingSeries(100), power:new RingSeries(100)},
+    ch2:{vout:new RingSeries(100), iout:new RingSeries(100), power:new RingSeries(100)}
+  }
+};
+
+/* ========= DOM refs ========= */
+const g = {
+  // global
+  sysDot: $('#sysStatusDot'),
+  sysText: $('#sysStatusText'),
+  allStatus: $('#allStatus'),
+  trak: $('#trakToggle'),
+  download: $('#downloadCsv'),
+  refresh: $('#forceRefresh'),
+  // ch1
+  vset1: $('#vset1'), iset1: $('#iset1'),
+  vout1: $('#vout1'), iout1: $('#iout1'), pout1: $('#pout1'),
+  status1: $('#status1'), oe1: $('#oe1'),
+  gV1: $('#gV1'), gI1: $('#gI1'), line1: $('#lineCh1'),
+  // ch2
+  vset2: $('#vset2'), iset2: $('#iset2'),
+  vout2: $('#vout2'), iout2: $('#iout2'), pout2: $('#pout2'),
+  status2: $('#status2'), oe2: $('#oe2'),
+  gV2: $('#gV2'), gI2: $('#gI2'), line2: $('#lineCh2'),
+};
+
+/* ========= UI actions ========= */
+g.trak.addEventListener('click', async ()=>{
+  state.trak = !state.trak;
+  g.trak.classList.toggle('lit', state.trak);
+  g.trak.classList.toggle('dim', !state.trak);
+  g.trak.textContent = `LINK`;
+  try{ await API.postUpdate({all:{trak: state.trak ? 'link' : 'independent'}}); }catch(e){}
+});
+
+$('#oe1').addEventListener('click', ()=> toggleOutput(1));
+$('#oe2').addEventListener('click', ()=> toggleOutput(2));
+
+$all('button[data-action="applyV"]').forEach(b=> b.addEventListener('click', ()=> applySet('vset', +$('#vset'+b.dataset.ch).value, +b.dataset.ch)));
+$all('button[data-action="applyI"]').forEach(b=> b.addEventListener('click', ()=> applySet('iset', +$('#iset'+b.dataset.ch).value, +b.dataset.ch)));
+
+async function toggleOutput(ch){
+  const btn = ch===1? g.oe1 : g.oe2;
+  const on = !btn.classList.contains('lit');
+  applyOutput(ch, on);
+}
+
+async function applyOutput(ch, on){
+  const btn = ch===1? g.oe1 : g.oe2;
+  const body = {}; body['ch'+ch] = {outputenable: on?1:0};
+  if(state.trak){ body['ch'+(ch===1?2:1)] = {outputenable: on?1:0}; }
+  try{
+    await API.postUpdate(body);
+    btn.classList.toggle('lit', on);
+    btn.classList.toggle('dim', !on);
+    btn.textContent = `Output: ${on?'ON':'OFF'}`;
+    if(state.trak){
+      const other = ch===1? g.oe2 : g.oe1;
+      other.classList.toggle('lit', on);
+      other.classList.toggle('dim', !on);
+      other.textContent = `Output: ${on?'ON':'OFF'}`;
+    }
+  }catch(e){}
+}
+
+async function applySet(kind, val, ch){
+  val = Math.round(val); // mV / mA integer resolution
+  const body = {}; body['ch'+ch] = {[kind]: val};
+  if(state.trak){ body['ch'+(ch===1?2:1)] = {[kind]: val}; }
+  try{ await API.postUpdate(body); }catch(e){}
+}
+
+/* ========= CSV ========= */
+g.download.addEventListener('click', ()=>{
+  const rows = [['t','ch','vout','iout','power']];
+  ['ch1','ch2'].forEach(ch=>{
+    const S = state.series[ch];
+    for(let i=0;i<S.vout.x.length;i++){
+      rows.push([new Date(S.vout.x[i]).toISOString(), ch, S.vout.y[i]??'', S.iout.y[i]??'', S.power.y[i]??'']);
+    }
+  });
+  const csv = rows.map(r=> r.join(',')).join('\n');
+  const blob = new Blob([csv], {type:'text/csv'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'power_supply_samples.csv';
+  a.click();
+  URL.revokeObjectURL(a.href);
+});
+
+/* ========= Polling ========= */
+let timer=null;
+async function pollOnce(){
+  try{
+    const data = await API.getStatus();
+
+    // All/global
+    const ok = data?.all?.status?.toLowerCase?.() === 'ok';
+    g.sysDot.className = 'status-dot ' + (ok? 'status-ok':'status-bad');
+    g.sysText.textContent = ok ? 'online' : 'error';
+    if(data?.all?.trak){
+      state.trak = String(data.all.trak).toLowerCase().startsWith('link');
+      g.trak.classList.toggle('lit', state.trak);
+      g.trak.classList.toggle('dim', !state.trak);
+      g.trak.textContent = `LINK`;
+    }
+   // g.allStatus.textContent = `all.status: ${data?.all?.status ?? '—'} | trak: ${data?.all?.trak ?? '—'}`;
+
+    // Channel helper
+    function updateChannel(idx){
+      const ch = data['ch'+idx] || {};
+      // text fields (sets)
+      $('#vset'+idx).value = ch.vset ?? $('#vset'+idx).value;
+      $('#iset'+idx).value = ch.iset ?? $('#iset'+idx).value;
+      setKnobAngle($(`.knob[data-ch="${idx}"][data-kind="vset"]`), ch.vset ?? 0, 0, 5000);
+      setKnobAngle($(`.knob[data-ch="${idx}"][data-kind="iset"]`), ch.iset ?? 0, 0, 5000);
+      // outputs
+      const oeBtn = idx===1? g.oe1 : g.oe2;
+      const on = !!ch.outputenable;
+      oeBtn.classList.toggle('lit', on);
+      oeBtn.classList.toggle('dim', !on);
+      oeBtn.textContent = `Output: ${on?'ON':'OFF'}`;
+      // seven segment
+      const v = (ch.vout??0)/1000; // mV -> V
+      const i = (ch.iout??0)/1000; // mA -> A
+      const p = (ch.powerout??0)/1000; // mW -> W (adjust if your API returns W)
+      $('#vout'+idx).textContent = v.toFixed(3);
+      $('#iout'+idx).textContent = i.toFixed(3);
+      $('#pout'+idx).textContent = p.toFixed(3);
+      $('#status'+idx).textContent = ch.status ?? '—';
+      // gauges
+      drawGauge(idx===1?g.gV1:g.gV2, v, 0, 5, `Vout (V)`);
+      drawGauge(idx===1?g.gI1:g.gI2, i, 0, 5, `Iout (A)`);
+      // line series
+      const S = state.series['ch'+idx];
+      S.vout.push(v); S.iout.push(i); S.power.push(p);
+      drawLine(idx===1?g.line1:g.line2, S.vout, '#8bc34a');
+    }
+    updateChannel(1);
+    updateChannel(2);
+
+  }catch(err){
+    g.sysDot.className = 'status-dot status-bad';
+    g.sysText.textContent = 'offline';
+    console.error(err);
+  }
+}
+
+function startPolling(intervalMs=1000){
+  if(timer) clearInterval(timer);
+  timer = setInterval(pollOnce, intervalMs);
+  $('#pollingBadge').textContent = (intervalMs/1000).toFixed(1)+' s';
+  pollOnce();
+}
+g.refresh.addEventListener('click', pollOnce);
+
+/* ========= Init ========= */
+startPolling(1000);
+
+/* ========= Drag to rotate knobs (optional nicety) ========= */
+$all('.knob').forEach(k=>{
+  let grabbing=false;
+  const min=0, max=5000; // mV/mA scale for knob
+  const ch = +k.dataset.ch;
+  const kind = k.dataset.kind; // 'vset' or 'iset'
+  function setByAngle(e){
+    const rect = k.getBoundingClientRect();
+    const cx = rect.left + rect.width/2;
+    const cy = rect.top + rect.height/2;
+    const dx = e.clientX - cx, dy = e.clientY - cy;
+    let ang = Math.atan2(dy, dx) * 180/Math.PI; // -180..180
+    ang = clamp(ang, -135, 135);
+    const val = Math.round(map(ang, -135, 135, min, max));
+    setKnobAngle(k, val, min, max);
+    // mirror to input
+    const input = $('#'+(kind==='vset'?'vset':'iset')+ch);
+    input.value = val;
+  }
+  k.addEventListener('mousedown', (e)=>{ grabbing=true; setByAngle(e); });
+  window.addEventListener('mousemove', (e)=>{ if(grabbing) setByAngle(e); });
+  window.addEventListener('mouseup', async (e)=>{
+    if(!grabbing) return; grabbing=false;
+    const val = +($('#'+(kind==='vset'?'vset':'iset')+ch).value);
+    applySet(kind, val, ch);
+  });
+});
+
+</script>
+</body>
+</html>
