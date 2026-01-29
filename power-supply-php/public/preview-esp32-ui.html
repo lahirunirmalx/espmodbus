@@ -1,0 +1,466 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>NI Power Supply Controller</title>
+<style>
+:root{
+  --bg:#e6e6e6;
+  --panel:#bdbdbd;
+  --bezel:#8e8e8e;
+  --ok:#4caf50;
+  --bad:#e53935;
+  --accent:#ffca28;
+  --lit:#ffeb3b;
+  --text:#202124;
+  --off:#616161;
+}
+html,body{height:100%;margin:0;background:#f2f2f2;color:var(--text);font:14px/1.35 system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif}
+.app{max-width:1280px;margin:18px auto;padding:18px;border-radius:12px;background:var(--bg);box-shadow:0 10px 30px rgba(0,0,0,.12),inset 0 2px 0 rgba(255,255,255,.6)}
+h1{margin:0 0 14px;font-weight:700;letter-spacing:.2px;display:flex;align-items:center;gap:12px}
+h1 img{height:32px}
+.topbar{display:flex;gap:12px;align-items:center;justify-content:space-between;margin-bottom:10px;flex-wrap:wrap}
+.chip{display:inline-flex;align-items:center;gap:8px;padding:8px 12px;border-radius:999px;background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.08)}
+.status-dot{width:10px;height:10px;border-radius:50%;background:var(--off);animation:none}
+.status-ok{background:var(--ok);box-shadow:0 0 8px var(--ok)}
+.status-bad{background:var(--bad);animation:blink 1s infinite}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:.3}}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+@media(max-width:900px){.grid{grid-template-columns:1fr}}
+.card{background:linear-gradient(#d7d7d7,#c6c6c6);border:1px solid var(--bezel);border-radius:10px;padding:14px;box-shadow:inset 0 4px 8px rgba(0,0,0,.08)}
+.row{display:flex;gap:12px;margin:8px 0;flex-wrap:wrap;align-items:center}
+.section-title{font-weight:700;margin:2px 0 10px;text-transform:uppercase;font-size:13px;letter-spacing:.08em;color:#444;display:flex;align-items:center;gap:8px}
+.section-title::before{content:"";width:4px;height:16px;background:var(--accent);border-radius:2px}
+.stack{display:flex;flex-direction:column;gap:8px}
+
+/* Seven Segment Display */
+.sevenseg{
+  font:700 36px/1 "Courier New",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  color:#c5ff31;
+  text-shadow:0 0 8px rgba(197,255,49,.75),0 0 18px rgba(197,255,49,.35),0 0 2px #000;
+  background:linear-gradient(180deg,#0a0d09 0%,#10130f 50%,#080a07 100%);
+  padding:12px 14px;
+  border-radius:8px;
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  letter-spacing:.06em;
+  border:2px solid #1a1a1a;
+  box-shadow:inset 0 2px 8px rgba(0,0,0,.5),0 2px 4px rgba(0,0,0,.2)
+}
+.sevenseg small{font-size:11px;color:#7a7a7a;text-shadow:none;font-weight:400}
+.sevenseg.warn{color:#ff9800;text-shadow:0 0 8px rgba(255,152,0,.75)}
+.sevenseg.error{color:#f44336;text-shadow:0 0 8px rgba(244,67,54,.75)}
+
+/* Toggle Buttons */
+.toggle{cursor:pointer;user-select:none;border:none;border-radius:8px;padding:12px 20px;font-weight:700;font-size:13px;text-transform:uppercase;letter-spacing:.05em;transition:all .15s}
+.toggle.lit{background:linear-gradient(180deg,#6fbf73 0%,#4caf50 100%);color:#042d0a;box-shadow:0 0 14px rgba(76,175,80,.55),inset 0 1px 0 rgba(255,255,255,.3),0 3px 8px rgba(0,0,0,.2)}
+.toggle.dim{background:linear-gradient(180deg,#555 0%,#333 100%);color:#aaa;box-shadow:inset 0 0 0 2px #444}
+.toggle.link{background:linear-gradient(180deg,#ffb74d 0%,#ff9800 100%);color:#3e2723}
+.toggle.link.lit{box-shadow:0 0 20px rgba(255,152,0,.6),inset 0 1px 0 rgba(255,255,255,.3)}
+
+/* Buttons */
+.btn{cursor:pointer;border:none;border-radius:6px;padding:10px 14px;font-weight:600;background:linear-gradient(180deg,#fff 0%,#e0e0e0 100%);box-shadow:0 1px 3px rgba(0,0,0,.15);transition:all .1s}
+.btn:hover{background:linear-gradient(180deg,#f5f5f5 0%,#d5d5d5 100%)}
+.btn:active{transform:translateY(1px)}
+.btn.primary{background:linear-gradient(180deg,#ffe082 0%,#ffc107 100%);color:#3e2723}
+.btn.danger{background:linear-gradient(180deg,#ef5350 0%,#d32f2f 100%);color:#fff}
+
+/* Knob */
+.knob-wrap{display:flex;gap:14px;align-items:center}
+.knob{width:100px;height:100px;border-radius:50%;background:radial-gradient(circle at 35% 35%,#fafafa,#cfcfcf);box-shadow:inset 0 10px 18px rgba(0,0,0,.2),0 2px 8px rgba(0,0,0,.25);position:relative;flex-shrink:0;cursor:grab}
+.knob:active{cursor:grabbing}
+.knob:after{content:"";position:absolute;inset:10px;border-radius:50%;background:radial-gradient(circle at 30% 30%,#fff,#dbdbdb)}
+.needle{position:absolute;left:50%;top:50%;width:4px;height:40px;background:linear-gradient(180deg,#d32f2f 0%,#b71c1c 100%);transform-origin:50% 90%;border-radius:2px;z-index:1;box-shadow:0 1px 3px rgba(0,0,0,.3)}
+
+/* Inputs */
+.readinput{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.readinput label{font-size:12px;color:#555;min-width:60px}
+.readinput input{width:90px;font:600 16px/1.2 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;padding:8px 10px;border-radius:6px;border:1px solid #9f9f9f;background:#fff;box-shadow:inset 0 1px 3px rgba(0,0,0,.1)}
+
+/* Gauge Meter */
+.meter{width:200px;height:120px;position:relative;background:linear-gradient(180deg,#f5f5f5 0%,#e0e0e0 100%);border-radius:10px;border:1px solid #9e9e9e;box-shadow:inset 0 4px 8px rgba(0,0,0,.1)}
+.gaugeCanvas{position:absolute;left:0;top:0}
+
+/* Graph */
+.graph{background:linear-gradient(180deg,#1a1a1a 0%,#111 100%);border-radius:8px;border:1px solid #333;padding:8px}
+.graph canvas{width:100%;height:140px;display:block}
+
+/* Footer */
+.footerbar{display:flex;gap:12px;align-items:center;justify-content:space-between;margin-top:14px;flex-wrap:wrap}
+.badge{background:#fff;border-radius:6px;padding:6px 10px;border:1px solid #c7c7c7;font-size:12px}
+
+/* Scanner */
+.scanner{margin-top:14px}
+.tableWrap{max-height:250px;overflow:auto;border:1px solid #999;border-radius:6px;background:#fff}
+table{border-collapse:collapse;width:100%;font-size:13px}
+th,td{border-bottom:1px solid #ddd;padding:6px 10px;text-align:left}
+thead th{position:sticky;top:0;background:linear-gradient(180deg,#e0e0e0,#ccc);border-bottom:2px solid #999}
+tbody tr:nth-child(even){background:#f9f9f9}
+tbody tr:hover{background:#e3f2fd}
+
+/* Status indicator */
+.led{width:12px;height:12px;border-radius:50%;display:inline-block;margin-right:6px;border:1px solid rgba(0,0,0,.2)}
+.led.on{background:radial-gradient(circle at 30% 30%,#8bc34a,#4caf50);box-shadow:0 0 8px #4caf50}
+.led.off{background:radial-gradient(circle at 30% 30%,#757575,#424242)}
+
+/* Demo mode banner */
+.demo-banner{background:linear-gradient(90deg,#ff9800,#f57c00);color:#fff;padding:8px 16px;text-align:center;font-weight:600;border-radius:8px;margin-bottom:14px}
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="demo-banner">🎨 UI PREVIEW MODE - Mock data for demonstration</div>
+  
+  <div class="topbar">
+    <h1>
+      <svg width="32" height="32" viewBox="0 0 32 32"><rect fill="#00897b" width="32" height="32" rx="4"/><text x="16" y="22" text-anchor="middle" fill="#fff" font-size="14" font-weight="bold">NI</text></svg>
+      Power Supply Controller
+    </h1>
+    <div class="chip">
+      <span id="sysStatusDot" class="status-dot status-ok"></span>
+      <span id="sysStatusText">online (demo)</span>
+    </div>
+  </div>
+
+  <!-- Global Controls -->
+  <div class="card" style="margin-bottom:14px">
+    <div class="section-title">Global Controls</div>
+    <div class="row">
+      <button id="linkToggle" class="toggle link dim">🔗 LINK: OFF</button>
+      <div style="margin-left:auto;display:flex;gap:8px;flex-wrap:wrap">
+        <button id="refreshBtn" class="btn">↻ Refresh</button>
+        <button id="downloadCsv" class="btn">📥 Export CSV</button>
+      </div>
+    </div>
+    <div style="font-size:12px;color:#666;margin-top:6px">
+      When LINK is ON, Channel 1 controls are mirrored to Channel 2
+    </div>
+  </div>
+
+  <!-- Dual Channel Grid -->
+  <div class="grid">
+    <!-- Channel 1 -->
+    <div class="card" id="ch1Card">
+      <div class="section-title">Channel 1 — Address 0x01</div>
+      
+      <div class="stack">
+        <div class="sevenseg"><span id="vout1">12.045</span><small>V out</small></div>
+        <div class="sevenseg"><span id="iout1">1.523</span><small>A out</small></div>
+        <div class="sevenseg"><span id="pout1">18.34</span><small>W out</small></div>
+      </div>
+
+      <div class="row" style="margin-top:12px">
+        <button id="oe1" class="toggle lit"><span class="led on"></span>Output: ON</button>
+        <span class="badge">Status: <b id="status1">OK</b></span>
+      </div>
+
+      <div class="row" style="margin-top:14px">
+        <div class="knob-wrap">
+          <div class="knob" id="knob1v"><div class="needle" id="kn1v" style="transform:translate(-50%,-90%) rotate(-45deg)"></div></div>
+          <div class="readinput">
+            <label>V set</label>
+            <input id="vset1" type="number" step="0.01" min="0" value="12.00">
+            <button class="btn primary" id="applyV1">Apply</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="row">
+        <div class="knob-wrap">
+          <div class="knob" id="knob1i"><div class="needle" id="kn1i" style="transform:translate(-50%,-90%) rotate(-108deg)"></div></div>
+          <div class="readinput">
+            <label>A set</label>
+            <input id="iset1" type="number" step="0.001" min="0" value="1.500">
+            <button class="btn primary" id="applyI1">Apply</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="row" style="margin-top:10px;gap:20px">
+        <div class="meter"><canvas class="gaugeCanvas" id="gV1" width="200" height="120"></canvas></div>
+        <div class="meter"><canvas class="gaugeCanvas" id="gI1" width="200" height="120"></canvas></div>
+      </div>
+
+      <div class="graph" style="margin-top:10px">
+        <canvas id="lineCh1" width="500" height="140"></canvas>
+      </div>
+    </div>
+
+    <!-- Channel 2 -->
+    <div class="card" id="ch2Card">
+      <div class="section-title">Channel 2 — Address 0x02</div>
+      
+      <div class="stack">
+        <div class="sevenseg"><span id="vout2">5.032</span><small>V out</small></div>
+        <div class="sevenseg"><span id="iout2">0.856</span><small>A out</small></div>
+        <div class="sevenseg"><span id="pout2">4.31</span><small>W out</small></div>
+      </div>
+
+      <div class="row" style="margin-top:12px">
+        <button id="oe2" class="toggle dim"><span class="led off"></span>Output: OFF</button>
+        <span class="badge">Status: <b id="status2">OK</b></span>
+      </div>
+
+      <div class="row" style="margin-top:14px">
+        <div class="knob-wrap">
+          <div class="knob" id="knob2v"><div class="needle" id="kn2v" style="transform:translate(-50%,-90%) rotate(-112deg)"></div></div>
+          <div class="readinput">
+            <label>V set</label>
+            <input id="vset2" type="number" step="0.01" min="0" value="5.00">
+            <button class="btn primary" id="applyV2">Apply</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="row">
+        <div class="knob-wrap">
+          <div class="knob" id="knob2i"><div class="needle" id="kn2i" style="transform:translate(-50%,-90%) rotate(-121deg)"></div></div>
+          <div class="readinput">
+            <label>A set</label>
+            <input id="iset2" type="number" step="0.001" min="0" value="1.000">
+            <button class="btn primary" id="applyI2">Apply</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="row" style="margin-top:10px;gap:20px">
+        <div class="meter"><canvas class="gaugeCanvas" id="gV2" width="200" height="120"></canvas></div>
+        <div class="meter"><canvas class="gaugeCanvas" id="gI2" width="200" height="120"></canvas></div>
+      </div>
+
+      <div class="graph" style="margin-top:10px">
+        <canvas id="lineCh2" width="500" height="140"></canvas>
+      </div>
+    </div>
+  </div>
+
+  <!-- Register Scanner -->
+  <div class="card scanner">
+    <div class="section-title">Register Scanner</div>
+    <div class="row">
+      <select id="scanCh" style="padding:8px;border-radius:6px;border:1px solid #999">
+        <option value="1">Channel 1</option>
+        <option value="2">Channel 2</option>
+      </select>
+      <div class="readinput">
+        <label>Start</label>
+        <input type="text" id="scanStart" value="0x0000" style="width:70px">
+      </div>
+      <div class="readinput">
+        <label>End</label>
+        <input type="text" id="scanEnd" value="0x0020" style="width:70px">
+      </div>
+      <button id="doScan" class="btn primary">Scan Registers</button>
+      <button id="exportScan" class="btn">Export</button>
+    </div>
+    <div class="tableWrap" style="margin-top:10px">
+      <table id="scanTable">
+        <thead><tr><th>Addr</th><th>Dec</th><th>Raw</th><th>Meaning</th><th>Value</th></tr></thead>
+        <tbody>
+          <tr><td>0x0000</td><td>0</td><td>1200</td><td>Vset (V*100)</td><td>12.00 V</td></tr>
+          <tr><td>0x0001</td><td>1</td><td>1500</td><td>Iset (A*1000)</td><td>1.500 A</td></tr>
+          <tr><td>0x0002</td><td>2</td><td>1205</td><td>Vout (V*100)</td><td>12.05 V</td></tr>
+          <tr><td>0x0003</td><td>3</td><td>1523</td><td>Iout (A*1000)</td><td>1.523 A</td></tr>
+          <tr><td>0x0004</td><td>4</td><td>1834</td><td>Pout (W*100)</td><td>18.34 W</td></tr>
+          <tr><td>0x0012</td><td>18</td><td>1</td><td>Output Enable (0/1)</td><td>ON</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="footerbar">
+    <div class="badge">⏱ Polling: <span id="pollRate">1.0s</span></div>
+    <div class="badge">📡 API: /api/status/{ch}</div>
+    <div class="badge">🔧 ESP32 Modbus RTU</div>
+  </div>
+</div>
+
+<script>
+/* ========= Helpers ========= */
+const $=s=>document.querySelector(s);
+const clamp=(n,a,b)=>Math.max(a,Math.min(b,n));
+const map=(n,a1,a2,b1,b2)=>b1+(n-a1)*(b2-b1)/(a2-a1);
+
+/* ========= Demo Data ========= */
+const demoData = {
+  ch1: { v: [], i: [] },
+  ch2: { v: [], i: [] }
+};
+
+// Generate initial demo data
+for(let i=0; i<40; i++) {
+  demoData.ch1.v.push(11.8 + Math.random() * 0.4);
+  demoData.ch1.i.push(1.4 + Math.random() * 0.2);
+  demoData.ch2.v.push(4.9 + Math.random() * 0.2);
+  demoData.ch2.i.push(0.8 + Math.random() * 0.1);
+}
+
+/* ========= Gauge Drawing ========= */
+function drawGauge(canvas,value,min,max,label,unit,color='#8bc34a'){
+  const ctx=canvas.getContext('2d');
+  const W=canvas.width,H=canvas.height;
+  ctx.clearRect(0,0,W,H);
+  const cx=W/2,cy=H*0.88,r=Math.min(W,H*1.3)*0.42;
+  
+  // Background arc
+  ctx.lineWidth=14;ctx.lineCap='round';
+  ctx.strokeStyle='#c7c7c7';
+  ctx.beginPath();ctx.arc(cx,cy,r,Math.PI,2*Math.PI);ctx.stroke();
+  
+  // Value arc
+  const pct=clamp((value-min)/(max-min),0,1);
+  const endAng=Math.PI+pct*Math.PI;
+  ctx.strokeStyle=color;
+  ctx.beginPath();ctx.arc(cx,cy,r,Math.PI,endAng);ctx.stroke();
+  
+  // Ticks
+  ctx.save();ctx.translate(cx,cy);
+  ctx.strokeStyle='#555';ctx.lineWidth=2;
+  for(let i=0;i<=10;i++){
+    const a=Math.PI+i*Math.PI/10;
+    ctx.beginPath();
+    ctx.moveTo(Math.cos(a)*(r-10),Math.sin(a)*(r-10));
+    ctx.lineTo(Math.cos(a)*(r+2),Math.sin(a)*(r+2));
+    ctx.stroke();
+  }
+  ctx.restore();
+  
+  // Needle
+  const needleAng=Math.PI+pct*Math.PI;
+  ctx.save();ctx.translate(cx,cy);ctx.rotate(needleAng-Math.PI/2);
+  ctx.fillStyle='#c62828';
+  ctx.beginPath();ctx.moveTo(-3,0);ctx.lineTo(3,0);ctx.lineTo(1,-r+18);ctx.lineTo(-1,-r+18);ctx.closePath();ctx.fill();
+  ctx.beginPath();ctx.arc(0,0,6,0,2*Math.PI);ctx.fillStyle='#424242';ctx.fill();
+  ctx.restore();
+  
+  // Text
+  ctx.fillStyle='#333';ctx.font='bold 18px ui-monospace';ctx.textAlign='center';
+  ctx.fillText(value.toFixed(2)+' '+unit,cx,H-8);
+  ctx.font='11px system-ui';ctx.fillStyle='#666';
+  ctx.fillText(label,cx,22);
+}
+
+/* ========= Line Graph ========= */
+function drawLine(canvas,data,color='#8bc34a'){
+  const ctx=canvas.getContext('2d');
+  const W=canvas.width,H=canvas.height;
+  ctx.clearRect(0,0,W,H);
+  
+  // Grid
+  ctx.strokeStyle='#2a2a2a';ctx.lineWidth=1;
+  for(let i=1;i<5;i++){
+    ctx.beginPath();ctx.moveTo(0,i*H/5);ctx.lineTo(W,i*H/5);ctx.stroke();
+  }
+  
+  if(data.length<2)return;
+  const ymin=Math.min(...data),ymax=Math.max(...data);
+  const range=ymax-ymin||1;
+  
+  // Line
+  ctx.strokeStyle=color;ctx.lineWidth=2;ctx.lineJoin='round';
+  ctx.beginPath();
+  data.forEach((v,i)=>{
+    const x=map(i,0,data.length-1,10,W-10);
+    const y=map(v,ymax,ymin,10,H-10);
+    if(i===0)ctx.moveTo(x,y);else ctx.lineTo(x,y);
+  });
+  ctx.stroke();
+  
+  // Fill
+  ctx.globalAlpha=0.15;ctx.fillStyle=color;
+  ctx.lineTo(W-10,H-10);ctx.lineTo(10,H-10);ctx.closePath();ctx.fill();
+  ctx.globalAlpha=1;
+}
+
+/* ========= Knob Rotation ========= */
+function setKnobAngle(needleId,val,min,max){
+  const needle=$(needleId);
+  if(!needle)return;
+  const deg=map(clamp(val,min,max),min,max,-135,135);
+  needle.style.transform=`translate(-50%,-90%) rotate(${deg}deg)`;
+}
+
+/* ========= UI Interactions ========= */
+$('#linkToggle').onclick=function(){
+  this.classList.toggle('lit');
+  const isLit = this.classList.contains('lit');
+  this.textContent = isLit ? '🔗 LINK: ON' : '🔗 LINK: OFF';
+};
+
+$('#oe1').onclick=function(){
+  const isLit = this.classList.toggle('lit');
+  this.classList.toggle('dim', !isLit);
+  this.innerHTML = `<span class="led ${isLit?'on':'off'}"></span>Output: ${isLit?'ON':'OFF'}`;
+};
+
+$('#oe2').onclick=function(){
+  const isLit = this.classList.toggle('lit');
+  this.classList.toggle('dim', !isLit);
+  this.innerHTML = `<span class="led ${isLit?'on':'off'}"></span>Output: ${isLit?'ON':'OFF'}`;
+};
+
+/* ========= Demo Animation ========= */
+function updateDemo() {
+  // Add new data points
+  demoData.ch1.v.push(11.8 + Math.random() * 0.4);
+  demoData.ch1.i.push(1.4 + Math.random() * 0.2);
+  demoData.ch2.v.push(4.9 + Math.random() * 0.2);
+  demoData.ch2.i.push(0.8 + Math.random() * 0.1);
+  
+  // Trim to max points
+  if(demoData.ch1.v.length > 60) {
+    demoData.ch1.v.shift(); demoData.ch1.i.shift();
+    demoData.ch2.v.shift(); demoData.ch2.i.shift();
+  }
+  
+  // Update displays
+  const v1 = demoData.ch1.v[demoData.ch1.v.length-1];
+  const i1 = demoData.ch1.i[demoData.ch1.i.length-1];
+  const v2 = demoData.ch2.v[demoData.ch2.v.length-1];
+  const i2 = demoData.ch2.i[demoData.ch2.i.length-1];
+  
+  $('#vout1').textContent = v1.toFixed(3);
+  $('#iout1').textContent = i1.toFixed(3);
+  $('#pout1').textContent = (v1*i1).toFixed(2);
+  
+  $('#vout2').textContent = v2.toFixed(3);
+  $('#iout2').textContent = i2.toFixed(3);
+  $('#pout2').textContent = (v2*i2).toFixed(2);
+  
+  // Draw gauges
+  drawGauge($('#gV1'), v1, 0, 30, 'Voltage', 'V', '#8bc34a');
+  drawGauge($('#gI1'), i1, 0, 5, 'Current', 'A', '#29b6f6');
+  drawGauge($('#gV2'), v2, 0, 30, 'Voltage', 'V', '#8bc34a');
+  drawGauge($('#gI2'), i2, 0, 5, 'Current', 'A', '#29b6f6');
+  
+  // Draw line graphs
+  drawLine($('#lineCh1'), demoData.ch1.v, '#8bc34a');
+  drawLine($('#lineCh2'), demoData.ch2.v, '#8bc34a');
+}
+
+// Initial draw and start animation
+updateDemo();
+setInterval(updateDemo, 1000);
+
+/* ========= Knob drag demo ========= */
+document.querySelectorAll('.knob').forEach(knob => {
+  let dragging = false;
+  const needle = knob.querySelector('.needle');
+  
+  knob.onmousedown = e => { dragging = true; e.preventDefault(); };
+  window.addEventListener('mousemove', e => {
+    if (!dragging) return;
+    const rect = knob.getBoundingClientRect();
+    const cx = rect.left + rect.width/2;
+    const cy = rect.top + rect.height/2;
+    let ang = Math.atan2(e.clientY - cy, e.clientX - cx) * 180 / Math.PI;
+    ang = clamp(ang, -135, 135);
+    needle.style.transform = `translate(-50%,-90%) rotate(${ang}deg)`;
+  });
+  window.addEventListener('mouseup', () => { dragging = false; });
+});
+</script>
+</body>
+</html>

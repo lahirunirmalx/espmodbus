@@ -1,0 +1,24 @@
+{
+    "ch1": {
+        "status": "ok",
+        "vset": 5000,
+        "iset": 4641,
+        "vout": 5002,
+        "iout": 4610,
+        "powerout": 23059,
+        "outputenable": 1
+    },
+    "ch2": {
+        "status": "ok",
+        "vset": 5000,
+        "iset": 4641,
+        "vout": 4982,
+        "iout": 4615,
+        "powerout": 22992,
+        "outputenable": 1
+    },
+    "all": {
+        "status": "ok",
+        "trak": "link"
+    }
+}
