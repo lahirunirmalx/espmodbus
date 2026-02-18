@@ -10,12 +10,24 @@
 const char *WIFI_SSID = "YOUR_WIFI_SSID";
 const char *WIFI_PASS = "YOUR_WIFI_PASSWORD";
 
-// ===== UART / RS485
+// ===== UART / RS485 (board-dependent)
+#if defined(ARDUINO_ESP32C3_DEV)
+// ESP32-C3 Super Mini: user UART on GPIO20 (RX), GPIO21 (TX); DE/RE on GPIO3
+#define MODBUS_UART Serial1
+#define UART_RX 20
+#define UART_TX 21
+#define UART_BAUD 115200
+#define RS485_DE_RE_PIN 3
+#define USE_RS485_DIR false
+#else
+// ESP32 (e.g. devkit): Serial2, RX=16, TX=17
+#define MODBUS_UART Serial2
 #define UART_RX 16
 #define UART_TX 17
 #define UART_BAUD 115200
 #define RS485_DE_RE_PIN 4
 #define USE_RS485_DIR false
+#endif
 
 // ===== Modbus Slave Addresses
 #define MODBUS_SLAVE_CH1 1
@@ -54,7 +66,7 @@ void postTransmission() {
 
 // ---------- Helpers ----------
 bool mbReadU16(uint8_t slaveId, uint16_t reg, uint16_t &out) {
-  node.begin(slaveId, Serial2);
+  node.begin(slaveId, MODBUS_UART);
   uint8_t rc = node.readHoldingRegisters(reg, 1);
   if (rc == node.ku8MBSuccess) {
     out = node.getResponseBuffer(0);
@@ -65,7 +77,7 @@ bool mbReadU16(uint8_t slaveId, uint16_t reg, uint16_t &out) {
 }
 
 bool mbWriteU16(uint8_t slaveId, uint16_t reg, uint16_t val) {
-  node.begin(slaveId, Serial2);
+  node.begin(slaveId, MODBUS_UART);
   uint8_t rc = node.writeSingleRegister(reg, val);
   return rc == node.ku8MBSuccess;
 }
@@ -264,7 +276,7 @@ void handleScan() {
   bool first = true;
   for (uint16_t reg = start; reg <= end; reg++) {
     uint16_t v = 0;
-    node.begin(slaveId, Serial2);
+    node.begin(slaveId, MODBUS_UART);
     uint8_t rc = node.readHoldingRegisters(reg, 1);
     if (rc == node.ku8MBSuccess) {
       v = node.getResponseBuffer(0);
@@ -318,14 +330,14 @@ void setup() {
   Serial.begin(115200);
   delay(100);
   
-  Serial2.begin(UART_BAUD, SERIAL_8N1, UART_RX, UART_TX);
+  MODBUS_UART.begin(UART_BAUD, SERIAL_8N1, UART_RX, UART_TX);
 #if USE_RS485_DIR
   pinMode(RS485_DE_RE_PIN, OUTPUT);
   digitalWrite(RS485_DE_RE_PIN, LOW);
 #endif
 
   // Initialize with default slave
-  node.begin(MODBUS_SLAVE_CH1, Serial2);
+  node.begin(MODBUS_SLAVE_CH1, MODBUS_UART);
   node.preTransmission(preTransmission);
   node.postTransmission(postTransmission);
 
