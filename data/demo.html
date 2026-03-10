@@ -31,17 +31,17 @@ html,body{height:100%;margin:0;background:#d0c8b8;color:var(--hp-text);font:13px
   box-shadow:0 1px 0 var(--hp-cream) inset,0 2px 4px rgba(0,0,0,0.15);
 }
 
-/* Demo banner */
+/* Demo banner — blue bar, yellow text (match demo_ui.png) */
 .demo-banner{
-  background:var(--hp-accent);
-  color:#fff;
-  padding:6px 12px;
+  background:#1e5a8a;
+  color:#ffcc00;
+  padding:8px 12px;
   text-align:center;
-  font-size:11px;
-  font-weight:600;
+  font-size:12px;
+  font-weight:700;
   text-transform:uppercase;
-  letter-spacing:1px;
-  margin:-16px -20px 14px -20px;
+  letter-spacing:1.5px;
+  margin:-16px -20px 0 -20px;
 }
 
 /* Header strip like HP instruments */
@@ -109,6 +109,7 @@ html,body{height:100%;margin:0;background:#d0c8b8;color:var(--hp-text);font:13px
   padding-bottom:6px;
   border-bottom:1px solid var(--hp-tan);
 }
+/* SYSTEM CONTROL uses same style, already uppercase via text-transform */
 
 /* Control row */
 .ctrl-row{display:flex;gap:10px;margin:6px 0;flex-wrap:wrap;align-items:center}
@@ -450,15 +451,15 @@ tbody tr:nth-child(even){background:#f8f4ec}
 </head>
 <body>
 <div class="app">
-  <div class="demo-banner">⚡ DEMO MODE — Simulated Data • All Controls Functional</div>
-  
+  <div class="demo-banner">DEMO MODE — SIMULATED DATA • ALL CONTROLS FUNCTIONAL</div>
+
   <div class="header-strip">
     <div style="display:flex;align-items:center;gap:12px">
       <h1>Hewlett Packard</h1>
       <span class="model-badge">E3631A</span>
     </div>
     <div style="display:flex;align-items:center;gap:16px">
-      <span style="font-size:12px">Triple Output DC Power Supply</span>
+      <span style="font-size:12px">Dual Output DC Power Supply</span>
       <div class="status-chip">
         <span class="status-led on" id="sysLed"></span>
         <span id="sysText">ONLINE</span>
@@ -468,7 +469,7 @@ tbody tr:nth-child(even){background:#f8f4ec}
 
   <!-- Global Controls -->
   <div class="panel" style="margin-bottom:10px">
-    <div class="panel-title">System Control</div>
+    <div class="panel-title">SYSTEM CONTROL</div>
     <div class="ctrl-row">
       <button id="linkToggle" class="hp-toggle off"><span class="ind"></span>TRACKING</button>
       <div style="margin-left:auto;display:flex;gap:6px">
@@ -533,7 +534,7 @@ tbody tr:nth-child(even){background:#f8f4ec}
       </div>
       <div class="scope-box">
         <canvas id="lineCh1" width="400" height="120"></canvas>
-        <span class="scope-label">CH1 Trace</span>
+        <span class="scope-label">CH1 TRACE</span>
       </div>
     </div>
 
@@ -590,7 +591,7 @@ tbody tr:nth-child(even){background:#f8f4ec}
       </div>
       <div class="scope-box">
         <canvas id="lineCh2" width="400" height="120"></canvas>
-        <span class="scope-label">CH2 Trace</span>
+        <span class="scope-label">CH2 TRACE</span>
       </div>
     </div>
   </div>
@@ -627,6 +628,12 @@ tbody tr:nth-child(even){background:#f8f4ec}
         </tbody>
       </table>
     </div>
+  </div>
+
+  <!-- UI reference image (demo_ui.png) -->
+  <div class="panel" style="margin-top:14px;text-align:center">
+    <div class="panel-title">UI reference</div>
+    <img src="demo_ui.png" alt="Dual Output DC Power Supply UI reference" style="max-width:100%;height:auto;border:1px solid var(--hp-border);border-radius:4px" />
   </div>
 
   <div class="footer-bar">

@@ -4,7 +4,7 @@ const char INDEX_HTML[] PROGMEM = R"INDEX_HTML(
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
-<title>HP Power Supply Controller</title>
+<title>Dual Output DC Power Supply — 36V / 6A</title>
 <style>
 :root{
   /* Classic HP Beige/Tan palette - No orange */
@@ -75,9 +75,9 @@ html,body{height:100%;margin:0;background:#d0c8b8;color:var(--hp-text);font:13px
 .status-led.on{background:#5a5;box-shadow:0 0 4px #5a5}
 .status-led.err{background:#a33;box-shadow:0 0 4px #a33}
 
-/* Grid layout */
+/* Grid layout — 2 channels */
 .grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
-@media(max-width:900px){.grid{grid-template-columns:1fr}}
+@media(max-width:700px){.grid{grid-template-columns:1fr}}
 
 /* Panel sections */
 .panel{
@@ -438,11 +438,11 @@ tbody tr:nth-child(even){background:#f8f4ec}
 <div class="app">
   <div class="header-strip">
     <div style="display:flex;align-items:center;gap:12px">
-      <h1>Hewlett Packard</h1>
-      <span class="model-badge">E3631A</span>
+      <h1>Dual Output DC Power Supply</h1>
+      <span class="model-badge">36 V / 6 A</span>
     </div>
     <div style="display:flex;align-items:center;gap:16px">
-      <span style="font-size:12px">Triple Output DC Power Supply</span>
+      <span style="font-size:12px">36V / 6A per channel</span>
       <div class="status-chip">
         <span class="status-led" id="sysLed"></span>
         <span id="sysText">STANDBY</span>
@@ -462,11 +462,11 @@ tbody tr:nth-child(even){background:#f8f4ec}
     </div>
   </div>
 
-  <!-- Dual Channel -->
+  <!-- Dual Channel 36V / 6A -->
   <div class="grid">
     <!-- Channel 1 -->
     <div class="panel">
-      <div class="panel-title">Output 1 — +25V / 1A</div>
+      <div class="panel-title">Output 1 — 36V / 6A</div>
       <div class="vfd-screen">
         <div class="vfd-row">
           <span class="vfd-label">Voltage</span>
@@ -494,7 +494,7 @@ tbody tr:nth-child(even){background:#f8f4ec}
           </div>
           <div class="input-group">
             <label>Voltage</label>
-            <input id="vset1" type="number" step="0.01" min="0" value="12.00">
+            <input id="vset1" type="number" step="0.01" min="0" max="36" value="12.00">
             <button class="hp-btn primary" id="applyV1">SET</button>
           </div>
         </div>
@@ -506,7 +506,7 @@ tbody tr:nth-child(even){background:#f8f4ec}
           </div>
           <div class="input-group">
             <label>Current</label>
-            <input id="iset1" type="number" step="0.001" min="0" value="1.000">
+            <input id="iset1" type="number" step="0.001" min="0" max="6" value="1.000">
             <button class="hp-btn primary" id="applyI1">SET</button>
           </div>
         </div>
@@ -523,7 +523,7 @@ tbody tr:nth-child(even){background:#f8f4ec}
 
     <!-- Channel 2 -->
     <div class="panel">
-      <div class="panel-title">Output 2 — +25V / 1A</div>
+      <div class="panel-title">Output 2 — 36V / 6A</div>
       <div class="vfd-screen">
         <div class="vfd-row">
           <span class="vfd-label">Voltage</span>
@@ -551,7 +551,7 @@ tbody tr:nth-child(even){background:#f8f4ec}
           </div>
           <div class="input-group">
             <label>Voltage</label>
-            <input id="vset2" type="number" step="0.01" min="0" value="12.00">
+            <input id="vset2" type="number" step="0.01" min="0" max="36" value="12.00">
             <button class="hp-btn primary" id="applyV2">SET</button>
           </div>
         </div>
@@ -563,7 +563,7 @@ tbody tr:nth-child(even){background:#f8f4ec}
           </div>
           <div class="input-group">
             <label>Current</label>
-            <input id="iset2" type="number" step="0.001" min="0" value="1.000">
+            <input id="iset2" type="number" step="0.001" min="0" max="6" value="1.000">
             <button class="hp-btn primary" id="applyI2">SET</button>
           </div>
         </div>
@@ -608,8 +608,8 @@ tbody tr:nth-child(even){background:#f8f4ec}
 
   <div class="footer-bar">
     <span class="footer-badge">POLL: 1.0s</span>
-    <span class="footer-badge">GPIB: /api/status/{ch}</span>
-    <span style="color:#666">© HEWLETT-PACKARD COMPANY</span>
+    <span class="footer-badge">Dual 36V/6A · /api/status/{ch}</span>
+    <span style="color:#666">Dual Output DC Power Supply</span>
   </div>
 </div>
 
@@ -622,6 +622,7 @@ const map=(n,a1,a2,b1,b2)=>b1+(n-a1)*(b2-b1)/(a2-a1);
 let linkMode=false;
 const series={ch1:{v:[],i:[]},ch2:{v:[],i:[]}};
 const MAX_POINTS=60;
+const MAX_V=36,MAX_A=6;
 
 function drawGauge(canvas,value,min,max,label,unit){
   const ctx=canvas.getContext('2d');
@@ -815,16 +816,16 @@ function updateUI(ch,d){
   
   if(document.activeElement!==$(`#vset${s}`))$(`#vset${s}`).value=d.setV.toFixed(2);
   if(document.activeElement!==$(`#iset${s}`))$(`#iset${s}`).value=d.setA.toFixed(3);
-  setKnobAngle(`#kn${s}v`,d.setV,0,60);
-  setKnobAngle(`#kn${s}i`,d.setA,0,10);
+  setKnobAngle(`#kn${s}v`,d.setV,0,MAX_V);
+  setKnobAngle(`#kn${s}i`,d.setA,0,MAX_A);
   
   const oeBtn=$(`#oe${s}`);
   oeBtn.classList.toggle('on',d.outputOn);
   oeBtn.classList.toggle('off',!d.outputOn);
   $(`#status${s}`).textContent=d.ok?'OK':'ERR';
   
-  drawGauge($(`#gV${s}`),dispV,0,60,'VOLTAGE','V');
-  drawGauge($(`#gI${s}`),dispA,0,10,'CURRENT','A');
+  drawGauge($(`#gV${s}`),dispV,0,MAX_V,'VOLTAGE','V');
+  drawGauge($(`#gI${s}`),dispA,0,MAX_A,'CURRENT','A');
   
   const ser=series[`ch${s}`];
   ser.v.push(dispV);ser.i.push(dispA);
