@@ -27,6 +27,9 @@ This project provides a **web-based controller** for the [SK120X DC Regulated Po
 ---
 
 ## 🖥️ Web Interface Preview
+
+![Dual Output DC Power Supply — Web UI (Demo)](data/demo_ui.png)
+
 - **Top Row:** Current status, setpoints, toggle controls  
 - **Middle Row:** Voltage/Current history chart, histogram  
 - **Bottom Row:** Modbus register scanner with CSV export  
