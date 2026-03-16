@@ -783,8 +783,15 @@ function setKnobAngle(id,val,min,max){
 async function getStatus(ch){
   try{const r=await fetch('/api/status/'+ch);const j=await r.json();if(!j.ok)throw 0;return j;}catch(e){return null;}
 }
-async function writeReg(ch,reg,val){
-  const r=await fetch(`/api/write/${ch}?reg=${reg}&val=${val}`,{method:'POST'});return r.json();
+async function getStatusAll(){
+  try{const r=await fetch('/api/status');const j=await r.json();return j;}catch(e){return null;}
+}
+function writeReg(ch,reg,val){
+  if(ws&&ws.readyState===WebSocket.OPEN){
+    ws.send(JSON.stringify({cmd:'write',ch:ch,reg:reg,val:val}));
+    return Promise.resolve({ok:true});
+  }
+  return fetch(`/api/write/${ch}?reg=${reg}&val=${val}`,{method:'POST'}).then(r=>r.json());
 }
 async function doLink(){return(await fetch('/api/link',{method:'POST'})).json();}
 
@@ -847,18 +854,16 @@ $('#oe1').onclick=async()=>{
   const on=$('#oe1').classList.contains('on');
   await writeReg(1,0x12,on?0:1);
   if(linkMode)await writeReg(2,0x12,on?0:1);
-  pollAll();
 };
 $('#oe2').onclick=async()=>{
   const on=$('#oe2').classList.contains('on');
   await writeReg(2,0x12,on?0:1);
-  pollAll();
 };
 
-$('#applyV1').onclick=async()=>{const v=parseFloat($('#vset1').value);if(!isNaN(v)){await writeReg(1,0,Math.round(v*100));if(linkMode)await writeReg(2,0,Math.round(v*100));pollAll();}};
-$('#applyV2').onclick=async()=>{const v=parseFloat($('#vset2').value);if(!isNaN(v)){await writeReg(2,0,Math.round(v*100));pollAll();}};
-$('#applyI1').onclick=async()=>{const a=parseFloat($('#iset1').value);if(!isNaN(a)){await writeReg(1,1,Math.round(a*1000));if(linkMode)await writeReg(2,1,Math.round(a*1000));pollAll();}};
-$('#applyI2').onclick=async()=>{const a=parseFloat($('#iset2').value);if(!isNaN(a)){await writeReg(2,1,Math.round(a*1000));pollAll();}};
+$('#applyV1').onclick=async()=>{const v=parseFloat($('#vset1').value);if(!isNaN(v)){await writeReg(1,0,Math.round(v*100));if(linkMode)await writeReg(2,0,Math.round(v*100));}};
+$('#applyV2').onclick=async()=>{const v=parseFloat($('#vset2').value);if(!isNaN(v)){await writeReg(2,0,Math.round(v*100));}};
+$('#applyI1').onclick=async()=>{const a=parseFloat($('#iset1').value);if(!isNaN(a)){await writeReg(1,1,Math.round(a*1000));if(linkMode)await writeReg(2,1,Math.round(a*1000));}};
+$('#applyI2').onclick=async()=>{const a=parseFloat($('#iset2').value);if(!isNaN(a)){await writeReg(2,1,Math.round(a*1000));}};
 
 function toHex(n){return '0x'+('0000'+n.toString(16)).slice(-4).toUpperCase();}
 function parseAddr(s){s=s.trim();return s.startsWith('0x')?parseInt(s,16):parseInt(s,10);}
@@ -894,14 +899,32 @@ $('#downloadCsv').onclick=()=>{
   const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='data.csv';a.click();
 };
 
-async function pollAll(){
-  const d1=await getStatus(1),d2=await getStatus(2);
-  const ok=d1&&d1.ok&&d2&&d2.ok;
+function handleStatusData(all){
+  if(!all||!all.ch1||!all.ch2){$('#sysLed').className='status-led err';$('#sysText').textContent='ERROR';return;}
+  const d1=all.ch1,d2=all.ch2;
+  const ok=d1.ok&&d2.ok;
   $('#sysLed').className='status-led '+(ok?'on':'err');
   $('#sysText').textContent=ok?'ONLINE':'ERROR';
   updateUI(1,d1);updateUI(2,d2);
 }
-setInterval(pollAll,1000);pollAll();
+
+async function pollAll(){
+  const all=await getStatusAll();
+  handleStatusData(all);
+}
+
+let ws=null;
+let wsRetry=0;
+function wsConnect(){
+  const proto=location.protocol==='https:'?'wss:':'ws:';
+  ws=new WebSocket(`${proto}//${location.hostname}:81/`);
+  ws.onopen=()=>{wsRetry=0;$('#sysText').textContent='WS OK';};
+  ws.onmessage=(e)=>{try{handleStatusData(JSON.parse(e.data));}catch(ex){}};
+  ws.onclose=()=>{ws=null;$('#sysText').textContent='WS CLOSED';setTimeout(wsConnect,Math.min(5000,500*Math.pow(2,wsRetry++)));};
+  ws.onerror=()=>{ws&&ws.close();};
+}
+wsConnect();
+pollAll();
 </script>
 </body>
 </html>

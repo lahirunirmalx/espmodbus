@@ -36,6 +36,20 @@ bool modbus_psu_read_u16(uint8_t slave_id, uint16_t reg, uint16_t *out) {
   return false;
 }
 
+bool modbus_psu_read_registers(uint8_t slave_id, uint16_t start_reg, uint8_t count, uint16_t *out) {
+  if (!s_node || !s_stream || !out || count == 0 || count > 125)
+    return false;
+  s_node->begin(slave_id, *s_stream);
+  uint8_t rc = s_node->readHoldingRegisters(start_reg, count);
+  if (rc == s_node->ku8MBSuccess) {
+    for (uint8_t i = 0; i < count; i++)
+      out[i] = s_node->getResponseBuffer(i);
+    s_node->clearResponseBuffer();
+    return true;
+  }
+  return false;
+}
+
 bool modbus_psu_write_u16(uint8_t slave_id, uint16_t reg, uint16_t val) {
   if (!s_node || !s_stream)
     return false;
