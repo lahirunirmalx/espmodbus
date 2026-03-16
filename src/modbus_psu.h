@@ -39,6 +39,9 @@ uint8_t modbus_psu_slave_id(int ch);
 /** Read one holding register. Returns true on success. */
 bool modbus_psu_read_u16(uint8_t slave_id, uint16_t reg, uint16_t *out);
 
+/** Read count consecutive holding registers starting at start_reg. out must hold count elements. Returns true on success. Count 1..125. */
+bool modbus_psu_read_registers(uint8_t slave_id, uint16_t start_reg, uint8_t count, uint16_t *out);
+
 /** Write one holding register. Returns true on success. */
 bool modbus_psu_write_u16(uint8_t slave_id, uint16_t reg, uint16_t val);
 

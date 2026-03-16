@@ -1,15 +1,39 @@
 /**
  * App HTTP — implementation. Handlers use modbus_psu API only.
+ * WebSocket server on port 81 pushes status updates when values change.
  */
 
 #include "app_http.h"
 #include "modbus_psu.h"
+#include "modbus_queue.h"
+#include "modbus_task.h"
 #include <Arduino.h>
+#include <WebSocketsServer.h>
+#include <ArduinoJson.h>
+#include <Preferences.h>
+#include <string.h>
 
 static WebServer *s_server = nullptr;
+static WebSocketsServer s_ws(81);
+
+static struct {
+  uint32_t modbus_ok;
+  uint32_t modbus_fail;
+  uint32_t ws_connects;
+  uint32_t ws_disconnects;
+  uint32_t boot_time;
+} s_stats;
+
+void app_http_stat_modbus_ok(void) { s_stats.modbus_ok++; }
+void app_http_stat_modbus_fail(void) { s_stats.modbus_fail++; }
+
+/* Skip send if client already disconnected (avoids "Connection reset by peer" log spam). */
+static bool client_connected(void) {
+  return s_server && s_server->client().connected();
+}
 
 static void send_json(const String &s) {
-  if (s_server)
+  if (client_connected())
     s_server->send(200, "application/json", s);
 }
 
@@ -32,137 +56,195 @@ static bool parse_num(const String &s, uint16_t *out) {
   return true;
 }
 
+static uint32_t s_poll_ms = 400;
+static Preferences s_prefs;
+
+static void load_config(void) {
+  s_prefs.begin("psu", true);
+  s_poll_ms = s_prefs.getUInt("poll_ms", 400);
+  s_prefs.end();
+  if (s_poll_ms < 50) s_poll_ms = 50;
+  if (s_poll_ms > 5000) s_poll_ms = 5000;
+}
+
+static void save_config(void) {
+  s_prefs.begin("psu", false);
+  s_prefs.putUInt("poll_ms", s_poll_ms);
+  s_prefs.end();
+}
+
 void app_http_init(WebServer *server) {
   s_server = server;
+  s_stats.boot_time = millis();
+  load_config();
+  modbus_task_set_poll_ms(s_poll_ms);
+}
+
+static String s_status_cache;
+
+static void ws_handle_write(uint8_t num, JsonDocument &doc) {
+  int ch = doc["ch"] | 1;
+  uint16_t reg = doc["reg"] | 0;
+  uint16_t val = doc["val"] | 0;
+
+  bool ok = modbus_task_write((uint8_t)ch, reg, val);
+
+  String resp;
+  resp.reserve(64);
+  resp = "{\"cmd\":\"write\",\"ok\":";
+  resp += ok ? "true" : "false";
+  resp += "}";
+  s_ws.sendTXT(num, resp);
+}
+
+static void ws_event(uint8_t num, WStype_t type, uint8_t *payload, size_t length) {
+  switch (type) {
+    case WStype_CONNECTED:
+      s_stats.ws_connects++;
+      Serial.printf("[WS] Client %u connected\n", num);
+      if (s_status_cache.length() > 0)
+        s_ws.sendTXT(num, s_status_cache);
+      break;
+    case WStype_DISCONNECTED:
+      s_stats.ws_disconnects++;
+      Serial.printf("[WS] Client %u disconnected\n", num);
+      break;
+    case WStype_TEXT: {
+      JsonDocument doc;
+      DeserializationError err = deserializeJson(doc, payload, length);
+      if (err) break;
+      const char *cmd = doc["cmd"];
+      if (cmd && strcmp(cmd, "write") == 0) {
+        ws_handle_write(num, doc);
+      }
+      break;
+    }
+    default:
+      break;
+  }
+}
+
+void app_ws_init(void) {
+  s_ws.begin();
+  s_ws.onEvent(ws_event);
+  Serial.println("WebSocket server started on port 81");
+}
+
+void app_ws_loop(void) {
+  s_ws.loop();
+}
+
+static void ws_broadcast_status(void) {
+  if (s_status_cache.length() > 0)
+    s_ws.broadcastTXT(s_status_cache);
+}
+
+
+void app_http_background_poll(void) {
+  if (modbus_task_status_changed()) {
+    char buf[512];
+    modbus_task_get_status(buf, sizeof(buf));
+    if (buf[0]) {
+      s_status_cache = buf;
+      ws_broadcast_status();
+    }
+  }
+}
+
+void app_http_invalidate_status_cache(void) {
+  s_status_cache = "";
 }
 
 void app_http_handle_index(const char *index_html) {
-  if (s_server && index_html)
+  if (client_connected() && index_html)
     s_server->send_P(200, "text/html", index_html);
+}
+
+void app_http_handle_status_all(void) {
+  if (!s_server)
+    return;
+  if (s_status_cache.length() == 0) {
+    char buf[512];
+    modbus_task_get_status(buf, sizeof(buf));
+    if (buf[0])
+      s_status_cache = buf;
+  }
+  if (s_status_cache.length() > 0) {
+    send_json(s_status_cache);
+  } else {
+    s_server->send(503, "application/json", "{\"ok\":false,\"msg\":\"not ready\"}");
+  }
 }
 
 void app_http_handle_status(void) {
   if (!s_server)
     return;
-  int ch = channel_from_uri(s_server->uri(), 1);
-  uint8_t slave_id = modbus_psu_slave_id(ch);
-
-  uint16_t sV = 0, sA = 0, oV = 0, oA = 0, oP = 0, outE = 0, mppt = 0;
-  bool ok = true;
-  ok &= modbus_psu_read_u16(slave_id, REG_SET_VOLT, &sV);
-  ok &= modbus_psu_read_u16(slave_id, REG_SET_CURR, &sA);
-  ok &= modbus_psu_read_u16(slave_id, REG_OUT_VOLT, &oV);
-  ok &= modbus_psu_read_u16(slave_id, REG_OUT_CURR, &oA);
-  ok &= modbus_psu_read_u16(slave_id, REG_OUT_POWER, &oP);
-  bool mppt_ok = modbus_psu_read_u16(slave_id, REG_MPPT_ENABLE, &mppt);
-
-  String json = "{";
-  json += "\"ok\":";
-  json += ok ? "true" : "false";
-  json += ",\"ch\":";
-  json += String(ch);
-  json += ",\"setV\":";
-  json += String(sV / 100.0f, 2);
-  json += ",\"setA\":";
-  json += String(sA / 1000.0f, 3);
-  json += ",\"outV\":";
-  json += String(oV / 100.0f, 2);
-  json += ",\"outA\":";
-  json += String(oA / 1000.0f, 3);
-  json += ",\"outP\":";
-  json += String(oP / 100.0f, 2);
-
-  if (modbus_psu_read_u16(slave_id, REG_OUT_ENABLE, &outE)) {
-    json += ",\"outputOn\":";
-    json += (outE == 1 ? "true" : "false");
-  } else {
-    json += ",\"outputOn\":null";
-  }
-  if (mppt_ok) {
-    json += ",\"mppt\":";
-    json += (mppt ? "true" : "false");
-  } else {
-    json += ",\"mppt\":null";
-  }
-  json += "}";
-  send_json(json);
+  app_http_handle_status_all();
 }
 
 void app_http_handle_write(void) {
   if (!s_server)
     return;
   int ch = channel_from_uri(s_server->uri(), 1);
-  uint8_t slave_id = modbus_psu_slave_id(ch);
 
   if (!s_server->hasArg("reg") || !s_server->hasArg("val")) {
-    s_server->send(400, "application/json",
-                   "{\"ok\":false,\"msg\":\"reg & val required\"}");
+    if (client_connected())
+      s_server->send(400, "application/json",
+                     "{\"ok\":false,\"msg\":\"reg & val required\"}");
     return;
   }
   uint16_t reg = (uint16_t)strtoul(s_server->arg("reg").c_str(), nullptr, 0);
   uint16_t val = (uint16_t)strtoul(s_server->arg("val").c_str(), nullptr, 0);
-  bool ok = modbus_psu_write_u16(slave_id, reg, val);
-  s_server->send(ok ? 200 : 500, "application/json",
-                 String("{\"ok\":") + (ok ? "true}" : "false,\"msg\":\"write failed\"}"));
-}
 
-static bool write_channel_settings(uint8_t slave_id, uint16_t sV, uint16_t sA, uint16_t outE, uint16_t mppt) {
-  bool ok = true;
-  ok &= modbus_psu_write_u16(slave_id, REG_SET_VOLT, sV);
-  ok &= modbus_psu_write_u16(slave_id, REG_SET_CURR, sA);
-  modbus_psu_write_u16(slave_id, REG_OUT_ENABLE, outE);
-  modbus_psu_write_u16(slave_id, REG_MPPT_ENABLE, mppt);
-  return ok;
+  bool ok = modbus_task_write((uint8_t)ch, reg, val);
+  if (client_connected())
+    s_server->send(ok ? 200 : 500, "application/json",
+                   String("{\"ok\":") + (ok ? "true}" : "false,\"msg\":\"write queued\"}"));
 }
 
 void app_http_handle_link(void) {
   if (!s_server)
     return;
-  uint16_t sV = 0, sA = 0, outE = 0, mppt = 0;
-  uint8_t sid1 = modbus_psu_slave_id(1);
-  bool ok = true;
-  ok &= modbus_psu_read_u16(sid1, REG_SET_VOLT, &sV);
-  ok &= modbus_psu_read_u16(sid1, REG_SET_CURR, &sA);
-  modbus_psu_read_u16(sid1, REG_OUT_ENABLE, &outE);
-  modbus_psu_read_u16(sid1, REG_MPPT_ENABLE, &mppt);
 
-  if (!ok) {
-    s_server->send(500, "application/json",
-                   "{\"ok\":false,\"msg\":\"failed to read Ch1\"}");
-    return;
-  }
-
-  bool write_ok = write_channel_settings(modbus_psu_slave_id(2), sV, sA, outE, mppt);
-
-  s_server->send(write_ok ? 200 : 500, "application/json",
-                 String("{\"ok\":") + (write_ok ? "true}" : "false,\"msg\":\"write to Ch2 failed\"}"));
+  bool ok = modbus_task_link();
+  if (client_connected())
+    s_server->send(ok ? 200 : 500, "application/json",
+                   String("{\"ok\":") + (ok ? "true}" : "false,\"msg\":\"link queued\"}"));
 }
 
 void app_http_handle_scan(void) {
   if (!s_server)
     return;
+
+  modbus_queue_clear();
+
   int ch = channel_from_uri(s_server->uri(), 1);
   uint8_t slave_id = modbus_psu_slave_id(ch);
 
-  uint16_t start = 0x0000, end = 0x0080;
+  uint16_t start = 0x0000, end = 0x0020;
   if (s_server->hasArg("start")) {
     if (!parse_num(s_server->arg("start"), &start)) {
-      s_server->send(400, "application/json", "{\"ok\":false,\"msg\":\"bad start\"}");
+      if (client_connected())
+        s_server->send(400, "application/json", "{\"ok\":false,\"msg\":\"bad start\"}");
       return;
     }
   }
   if (s_server->hasArg("end")) {
     if (!parse_num(s_server->arg("end"), &end)) {
-      s_server->send(400, "application/json", "{\"ok\":false,\"msg\":\"bad end\"}");
+      if (client_connected())
+        s_server->send(400, "application/json", "{\"ok\":false,\"msg\":\"bad end\"}");
       return;
     }
   }
-  if (end < start || (end - start) > 256) {
-    s_server->send(400, "application/json", "{\"ok\":false,\"msg\":\"range too large\"}");
+  if (end < start || (end - start) > 32) {
+    if (client_connected())
+      s_server->send(400, "application/json", "{\"ok\":false,\"msg\":\"range max 32 regs\"}");
     return;
   }
 
-  String json = "{\"ok\":true,\"ch\":";
+  String json;
+  json.reserve(1024);
+  json = "{\"ok\":true,\"ch\":";
   json += String(ch);
   json += ",\"rows\":[";
   bool first = true;
@@ -181,13 +263,56 @@ void app_http_handle_scan(void) {
         json += ",\"interpretation\":\"" + String(i) + "\"";
       json += "}";
     }
-    delay(5);
+    delay(0);
   }
   json += "]}";
   send_json(json);
 }
 
+void app_http_handle_health(void) {
+  if (!s_server)
+    return;
+  uint32_t uptime_s = (millis() - s_stats.boot_time) / 1000;
+  String json;
+  json.reserve(200);
+  json = "{\"uptime_s\":";
+  json += String(uptime_s);
+  json += ",\"modbus_ok\":";
+  json += String(s_stats.modbus_ok);
+  json += ",\"modbus_fail\":";
+  json += String(s_stats.modbus_fail);
+  json += ",\"ws_connects\":";
+  json += String(s_stats.ws_connects);
+  json += ",\"ws_disconnects\":";
+  json += String(s_stats.ws_disconnects);
+  json += ",\"heap_free\":";
+  json += String(ESP.getFreeHeap());
+  json += "}";
+  send_json(json);
+}
+
+void app_http_handle_config(void) {
+  if (!s_server)
+    return;
+
+  if (s_server->hasArg("poll_ms")) {
+    uint32_t new_poll = strtoul(s_server->arg("poll_ms").c_str(), nullptr, 10);
+    if (new_poll >= 50 && new_poll <= 5000) {
+      s_poll_ms = new_poll;
+      modbus_task_set_poll_ms(new_poll);
+      save_config();
+    }
+  }
+
+  String json;
+  json.reserve(64);
+  json = "{\"ok\":true,\"poll_ms\":";
+  json += String(modbus_task_get_poll_ms());
+  json += "}";
+  send_json(json);
+}
+
 void app_http_not_found(void) {
-  if (s_server)
+  if (client_connected())
     s_server->send(404, "text/plain", "Not found");
 }

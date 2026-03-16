@@ -1,5 +1,5 @@
 /**
- * App HTTP — REST handlers for status, write, scan, link.
+ * App HTTP — REST handlers for status, write, scan, link + WebSocket push.
  * Uses modbus_psu only; no HAL or board knowledge.
  */
 
@@ -15,8 +15,23 @@ extern "C" {
 /** Call once: pass the WebServer instance used for all handlers. */
 void app_http_init(WebServer *server);
 
+/** Call once from setup() after app_http_init to start WebSocket server on port 81. */
+void app_ws_init(void);
+
+/** Call from loop(): handles WebSocket events. */
+void app_ws_loop(void);
+
+/** Call from loop(): runs Modbus read in background, updates cache only when values change, pushes via WS. */
+void app_http_background_poll(void);
+
+/** Call after write/link so next poll picks up new values. */
+void app_http_invalidate_status_cache(void);
+
 /** GET / — serve index HTML (pass PROGMEM pointer). */
 void app_http_handle_index(const char *index_html);
+
+/** GET /api/status — combined status for both channels (one response). */
+void app_http_handle_status_all(void);
 
 /** GET /api/status/1 or /api/status/2 */
 void app_http_handle_status(void);
@@ -30,8 +45,18 @@ void app_http_handle_scan(void);
 /** POST /api/link — copy Ch1 settings to Ch2 */
 void app_http_handle_link(void);
 
+/** GET /api/health — system stats */
+void app_http_handle_health(void);
+
+/** GET/POST /api/config — poll rate config */
+void app_http_handle_config(void);
+
 /** 404 */
 void app_http_not_found(void);
+
+/** Increment stats counters. */
+void app_http_stat_modbus_ok(void);
+void app_http_stat_modbus_fail(void);
 
 #ifdef __cplusplus
 }
