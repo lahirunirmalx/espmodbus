@@ -140,12 +140,22 @@ Standalone SDL2 control panel for the PSU with:
 - **Dual-trace scope** — Voltage and current plots with auto-scaling
 - **Common keypad** — Single numeric keypad for setting V/I on either channel
 
+### Full GUI
+
+![PSU Control GUI](docs/psu-gui.png)
+
+### Compact Toolbar
+
+![PSU Toolbar](docs/psu-toolbar.png)
+
 ### Build & Run
 
 ```bash
 cd psu-gui
 make
-./psu_gui /dev/ttyUSB0    # or --demo for testing
+./psu_gui /dev/ttyUSB0          # Full GUI
+./psu_gui_toolbar /dev/ttyUSB0  # Compact toolbar
+# Use --demo for testing without hardware
 ```
 
 Requires: `libsdl2-dev`, `libsdl2-ttf-dev`
