@@ -122,7 +122,7 @@ static void *reader_thread_func(void *arg) {
                     ctx->err_count++;
                     pthread_mutex_unlock(&ctx->lock);
                 }
-            } else if (strncmp(line, "!READY", 6) == 0) {
+            } else if (strncmp(line, "!READY", 6) == 0 || strncmp(line, "PONG", 4) == 0) {
                 pthread_mutex_lock(&ctx->lock);
                 ctx->connected = true;
                 pthread_mutex_unlock(&ctx->lock);

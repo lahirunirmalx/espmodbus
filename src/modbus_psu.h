@@ -23,6 +23,9 @@ extern "C" {
 /**
  * Holding register map (0x00-0x1F).
  * Based on reverse-engineering SK120X and similar modules.
+ *
+ * NOTE: Register layout may vary between PSU models.
+ * This map is confirmed for SK120X; other models (DPS, XYS) may differ.
  */
 
 /* Core setpoint/output registers */
@@ -36,49 +39,31 @@ extern "C" {
 #define REG_OUT_ENERGY_H  0x0005  /* Output energy high word: Wh */
 #define REG_OUT_ENERGY_L  0x0006  /* Output energy low word: Wh */
 
-/* Input/Temperature */
+/* Input voltage */
 #define REG_IN_VOLT       0x0007  /* Input voltage: V * 100 */
-#define REG_UNKNOWN_08    0x0008  /* Unknown register */
 
-/* Time registers */
+/* Time registers (32-bit) */
 #define REG_TIME_H        0x0009  /* Runtime high word: seconds */
 #define REG_TIME_L        0x000A  /* Runtime low word: seconds */
 
-/* Capacity (Ah) */
+/* Capacity (32-bit, Ah * 1000) */
 #define REG_CAPACITY_H    0x000B  /* Capacity high word: Ah * 1000 */
 #define REG_CAPACITY_L    0x000C  /* Capacity low word: Ah * 1000 */
 
-/* Temperature - confirmed at 0x0D on this PSU model */
+/* Temperature */
 #define REG_TEMP          0x000D  /* Temperature: °C * 10 (e.g., 381 = 38.1°C) */
 
 /* Protection thresholds */
 #define REG_OVP           0x000E  /* Over-voltage protection: V * 100 */
 #define REG_OCP           0x000F  /* Over-current protection: A * 1000 */
-#define REG_OPP           0x0010  /* Over-power protection: W * 100 (may be at different addr) */
+#define REG_OPP           0x0010  /* Over-power protection: W * 100 */
 
-/* Device info */
-#define REG_MODEL_H       0x0010  /* Model number high */
-#define REG_MODEL_L       0x0011  /* Model number low */
-#define REG_FW_VERSION    0x0012  /* Firmware version (if not output enable) */
-
-/* Status flags */
-#define REG_OUT_ENABLE    0x0012  /* Output enable: 0/1 (some models) */
+/* Status/Control */
+#define REG_OUT_ENABLE    0x0012  /* Output enable: 0/1 */
 #define REG_STATUS        0x0013  /* Status flags: bit0=CV/CC, bit1=OVP, bit2=OCP, etc. */
 #define REG_CV_CC         0x0014  /* CV/CC mode: 0=CV, 1=CC */
 
-/* Reserved / Unknown */
-#define REG_UNKNOWN_15    0x0015
-#define REG_UNKNOWN_16    0x0016
-#define REG_UNKNOWN_17    0x0017
-#define REG_UNKNOWN_18    0x0018
-#define REG_UNKNOWN_19    0x0019
-#define REG_UNKNOWN_1A    0x001A
-#define REG_UNKNOWN_1B    0x001B
-#define REG_UNKNOWN_1C    0x001C
-#define REG_UNKNOWN_1D    0x001D
-#define REG_UNKNOWN_1E    0x001E
-
-/* MPPT (experimental, device-dependent) */
+/* MPPT (device-dependent, experimental) */
 #define REG_MPPT_ENABLE   0x001F  /* MPPT enable: 0/1 */
 
 /**
@@ -98,10 +83,16 @@ bool modbus_psu_read_registers(uint8_t slave_id, uint16_t start_reg, uint8_t cou
 /** Write one holding register. Returns true on success. */
 bool modbus_psu_write_u16(uint8_t slave_id, uint16_t reg, uint16_t val);
 
-/** Human-readable name for register. */
+/**
+ * Human-readable name for register.
+ * NOTE: Uses static buffer; not reentrant. Single-threaded use only.
+ */
 const char *modbus_psu_meaning(uint16_t reg);
 
-/** Human-readable value for register (e.g. "12.34 V"). */
+/**
+ * Human-readable value for register (e.g. "12.34 V").
+ * NOTE: Uses static buffer; not reentrant. Single-threaded use only.
+ */
 const char *modbus_psu_interpret(uint16_t reg, uint16_t raw);
 
 #ifdef __cplusplus

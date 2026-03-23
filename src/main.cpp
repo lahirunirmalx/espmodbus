@@ -13,11 +13,14 @@
  *     START                   -> resumes streaming
  *     POLL <ms>               -> set poll interval (50-1000)
  *     RAW <ch>                -> send raw 32 register dump
+ *     VERSION                 -> firmware version
  *
  * Write commands have priority - processed immediately before polling.
  */
 
 #include <Arduino.h>
+
+#define FW_VERSION "1.0.0"
 #include <ModbusMaster.h>
 
 #include "hal/hal_board.h"
@@ -55,7 +58,8 @@ void setup() {
   modbus_psu_init(&node, modbus_stream);
 
   delay(100);
-  Serial.println("!READY");
+  Serial.print("!READY v");
+  Serial.println(FW_VERSION);
 }
 
 void loop() {
@@ -332,7 +336,6 @@ static void process_command(const char *line) {
   }
 
   if (strcmp(cmd, "REGS") == 0) {
-    /* Print register map */
     Serial.println("Register map:");
     Serial.println("0x00 setV   V*100");
     Serial.println("0x01 setA   A*1000");
@@ -342,18 +345,24 @@ static void process_command(const char *line) {
     Serial.println("0x05 outE_H Wh high");
     Serial.println("0x06 outE_L Wh low");
     Serial.println("0x07 inV    V*100");
-    Serial.println("0x08 temp   C*10");
+    Serial.println("0x0D temp   C*10");
     Serial.println("0x09 time_H sec high");
     Serial.println("0x0A time_L sec low");
     Serial.println("0x0B cap_H  Ah*1000 high");
     Serial.println("0x0C cap_L  Ah*1000 low");
-    Serial.println("0x0D OVP    V*100");
-    Serial.println("0x0E OCP    A*1000");
-    Serial.println("0x0F OPP    W*100");
+    Serial.println("0x0E OVP    V*100");
+    Serial.println("0x0F OCP    A*1000");
+    Serial.println("0x10 OPP    W*100");
     Serial.println("0x12 out    0/1");
     Serial.println("0x13 status flags");
     Serial.println("0x14 cvcc   0=CV,1=CC");
     Serial.println("0x1F mppt   0/1");
+    return;
+  }
+
+  if (strcmp(cmd, "VERSION") == 0) {
+    Serial.print("OK ");
+    Serial.println(FW_VERSION);
     return;
   }
 
