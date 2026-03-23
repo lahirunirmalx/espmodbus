@@ -4,6 +4,16 @@ Standalone C GUI for controlling dual-channel DC power supplies via serial-to-Mo
 
 Mimics the web UI: VFD-style displays, analog gauges, scope traces, output toggles, setpoint controls.
 
+## Screenshots
+
+### Full GUI (`psu_gui`)
+
+![PSU Control GUI](screenshots/psu_gui.png)
+
+### Compact Toolbar (`psu_gui_toolbar`)
+
+![PSU Toolbar GUI](screenshots/psu_gui_toolbar.png)
+
 ---
 
 ## Features
