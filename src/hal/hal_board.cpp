@@ -9,18 +9,21 @@
 #if defined(BOARD_ESP32C3)
 /* ESP32-C3 e.g. Super Mini: UART on GPIO20 (RX), GPIO21 (TX); DE/RE on GPIO3 */
 static HardwareSerial *s_modbus_uart = &Serial1;
-#define UART_RX      20
-#define UART_TX      21
-#define UART_BAUD    115200
+#define UART_RX          20
+#define UART_TX          21
+#define UART_BAUD        115200
 #define RS485_DE_RE_PIN  3
-#define USE_RS485_DIR    0
 #else
 /* ESP32 (e.g. devkit): Serial2, RX=16, TX=17 */
 static HardwareSerial *s_modbus_uart = &Serial2;
-#define UART_RX      16
-#define UART_TX      17
-#define UART_BAUD    115200
+#define UART_RX          16
+#define UART_TX          17
+#define UART_BAUD        115200
 #define RS485_DE_RE_PIN  4
+#endif
+
+/* USE_RS485_DIR can be set via build_flags: -DUSE_RS485_DIR=1 */
+#ifndef USE_RS485_DIR
 #define USE_RS485_DIR    0
 #endif
 
