@@ -52,6 +52,10 @@ make
 
 # Demo mode (no device)
 ./psu_gui
+
+# Compact toolbar-style GUI (minimal controls)
+./psu_gui_toolbar /dev/ttyUSB0
+./psu_gui_toolbar
 ```
 
 If the serial port is unavailable, the app runs in **DEMO mode** with simulated data.
@@ -63,7 +67,7 @@ If the serial port is unavailable, the app runs in **DEMO mode** with simulated 
 The GUI communicates with the ESP32 using the text-based serial protocol:
 
 | Command | Description |
-|---------|-------------|
+| ------- | ----------- |
 | `STATUS <ch>` | Read channel status |
 | `WRITE <ch> <reg> <val>` | Write register |
 | `LINK` | Copy Ch1 to Ch2 |
@@ -79,11 +83,14 @@ See the ESP32 firmware README for full protocol details.
 - **TRACKING** — When enabled, copies Ch1 settings to Ch2
 - **REFRESH** — Force status poll
 
+Toolbar GUI (`psu_gui_toolbar`): compact strip with **large V and A** per channel, **ON/OFF** and **CV/CC** status, **OUT** and **SET**. **SET** opens a small modal to edit voltage and current setpoints (click outside, **CANCEL**, or **Esc** to close).
+
 ---
 
 ## Code Structure
 
 - **`main.c`** — SDL2 GUI, event handling, rendering
+- **`main_toolbar.c`** — Compact toolbar-style SDL2 GUI
 - **`serial_port.c/h`** — Linux serial port abstraction
 - **`psu_protocol.c/h`** — PSU command/response parsing
 
