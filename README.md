@@ -134,21 +134,53 @@ OK started
 
 Standalone SDL2 control panel for the PSU with:
 
-- **Dual-channel VFD display** — Realistic HP-style 7-segment readouts
-- **Bar meters** — Voltage/Current per channel with real-time updates
-- **Temperature gauge** — Warning indicators above 50°C
-- **Dual-trace scope** — Voltage and current plots with auto-scaling
-- **Common keypad** — Single numeric keypad for setting V/I on either channel
+- **VFD display** — Voltage, current, power readouts with green-on-black style
+- **Analog gauges** — Needle gauges for V/A per channel
+- **Scope traces** — Real-time voltage/current waveform per channel
+- **Controls** — OUTPUT toggle, voltage/current setpoints
+- **TRACKING** — Link Ch1 settings to Ch2
+- **Demo mode** — Runs with simulated data if serial port unavailable
+
+### Dependencies
+
+```bash
+# Ubuntu/Debian
+sudo apt install libsdl2-dev libsdl2-ttf-dev
+
+# Fedora
+sudo dnf install SDL2-devel SDL2_ttf-devel
+
+# Arch
+sudo pacman -S sdl2 sdl2_ttf
+```
+
+Also needs a monospace font (DejaVu Sans Mono or Liberation Mono).
 
 ### Build & Run
 
 ```bash
 cd psu-gui
 make
-./psu_gui /dev/ttyUSB0    # or --demo for testing
+
+# With ESP32 connected
+./psu_gui /dev/ttyUSB0
+
+# Demo mode (no device)
+./psu_gui
+
+# Compact toolbar-style GUI
+./psu_gui_toolbar /dev/ttyUSB0
+./psu_gui_toolbar
 ```
 
-Requires: `libsdl2-dev`, `libsdl2-ttf-dev`
+### GUI Controls
+
+- **OUTPUT button** — Toggle output on/off
+- **VOLTAGE/CURRENT inputs** — Click to edit, type value, press SET or Enter
+- **TRACKING** — When enabled, copies Ch1 settings to Ch2
+- **REFRESH** — Force status poll
+
+**Toolbar GUI** (`psu_gui_toolbar`): Compact strip with large V/A readouts, ON/OFF and CV/CC status. **SET** opens a modal to edit setpoints (click outside, **CANCEL**, or **Esc** to close)
 
 ---
 
@@ -158,6 +190,10 @@ Requires: `libsdl2-dev`, `libsdl2-ttf-dev`
 - **`src/hal/`** — Board HAL: UART/RS485 pins, init
 - **`src/modbus_psu.h` / `modbus_psu.cpp`** — Register map, Modbus read/write
 - **`psu-gui/`** — SDL2 GUI application
+  - `main.c` — Full GUI with VFD display, gauges, scope
+  - `main_toolbar.c` — Compact toolbar-style GUI
+  - `serial_port.c/h` — Linux serial port abstraction
+  - `psu_protocol.c/h` — PSU command/response parsing
 
 ---
 
