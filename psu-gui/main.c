@@ -22,9 +22,13 @@
 #include "serial_port.h"
 #include "psu_protocol.h"
 
-/* Window dimensions - compact layout */
+/* Window dimensions - override before including this file for alternate layouts */
+#ifndef WIN_W
 #define WIN_W 1240
+#endif
+#ifndef WIN_H
 #define WIN_H 720
+#endif
 
 /* Layout constants */
 #define HEADER_H     40
