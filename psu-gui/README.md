@@ -1,29 +1,63 @@
 # PSU Control GUI — SDL2 Application
 
-Standalone C GUI for controlling dual-channel DC power supplies via serial-to-Modbus bridge (ESP32).
+Standalone C GUI for controlling DC power supplies via a serial-to-Modbus bridge (ESP32). Two **full** layouts (dual- or single-channel) and two **toolbar** layouts (dual- or single-channel) share the same serial stack (`serial_port`, `psu_protocol`).
 
-Mimics the web UI: VFD-style displays, analog gauges, scope traces, output toggles, setpoint controls.
+The full GUI mimics a bench-instrument style: VFD-style readouts, bar meters, temperature strip, scope traces, keypad, and setpoint controls.
 
 ## Screenshots
 
-### Full GUI (`psu_gui`)
+### Full GUI — dual channel (`psu_gui`)
 
 ![PSU Control GUI](screenshots/psu_gui.png)
 
-### Compact Toolbar (`psu_gui_toolbar`)
+### Full GUI — single channel (`psu_gui_single`)
+
+Compact window, one output panel, collapsible keypad (`<` / `>` on the keypad edge), no tracking control, title **DC POWER SUPPLY**.
+
+### Toolbar — dual channel (`psu_gui_toolbar`)
 
 ![PSU Toolbar GUI](screenshots/psu_gui_toolbar.png)
+
+### Toolbar — single channel (`psu_gui_toolbar_single`)
+
+Narrow strip with one readout row (**OUT** label), **SET** / **OUT**, same SET popup as the dual toolbar; talks to **channel 1** only.
+
+---
+
+## Binaries
+
+| Binary | Source | Description |
+| ------ | ------ | ----------- |
+| `psu_gui` | `main.c` | Dual output: two panels, keypad, **TRACKING**, **SYSTEM CONTROL** |
+| `psu_gui_single` | `main_single.c` | Single output: one panel, collapsible keypad, **CONTROL** only |
+| `psu_gui_toolbar` | `main_toolbar.c` | Minimal strip: **CH1** / **CH2**, large V/A, SET popup |
+| `psu_gui_toolbar_single` | `main_toolbar_single.c` | Same toolbar UX for **one** channel (hardware ch 1) |
+
+`make all` builds all four. After `make`, you can copy binaries into the project `bin/` tree if you keep release artifacts there.
 
 ---
 
 ## Features
 
-- **VFD display** — Voltage, current, power readouts with green-on-black style
-- **Analog gauges** — Needle gauges for V/A
-- **Scope traces** — Real-time voltage waveform per channel
-- **Controls** — OUTPUT toggle, voltage/current setpoints
-- **TRACKING** — Link Ch1 settings to Ch2
-- **Demo mode** — Runs with simulated data if serial port unavailable
+### Full GUI (`psu_gui` / `psu_gui_single`)
+
+- **VFD display** — Voltage, current, power with green-on-black style  
+- **Bar meters** — Voltage and current vs full-scale  
+- **Temperature** — Gradient bar with warning behavior  
+- **Scope traces** — Voltage (green) and current (yellow) on one timebase  
+- **OUTPUT** toggle, **SET VOLTAGE** / **SET CURRENT** fields and buttons  
+- **Keypad** — Numeric entry for setpoints (dual GUI: CH1/CH2 toggle; single GUI: CH1 only, collapsible panel)  
+- **Demo mode** — Simulated data if the serial port cannot be opened  
+
+Dual GUI only:
+
+- **TRACKING** — Link Ch1 settings to Ch2 (`LINK` command)
+
+### Toolbar GUI (`psu_gui_toolbar` / `psu_gui_toolbar_single`)
+
+- Large **V** and **A** readouts, **ON/OFF**, **CV/CC**, **ERR** when invalid  
+- **OUT** toggles output; **SET** opens a modal for V/A setpoints (**APPLY**, **CANCEL**, click outside, **Esc**)  
+- Window height grows while the popup is open  
 
 ---
 
@@ -42,14 +76,20 @@ sudo dnf install SDL2-devel SDL2_ttf-devel
 sudo pacman -S sdl2 sdl2_ttf
 ```
 
-Also needs a monospace font (DejaVu Sans Mono or Liberation Mono).
+A monospace font is required (DejaVu Sans Mono or Liberation Mono is auto-detected from common paths).
 
 ---
 
 ## Build
 
 ```bash
-make
+cd psu-gui
+make              # all four binaries
+make psu_gui
+make psu_gui_single
+make psu_gui_toolbar
+make psu_gui_toolbar_single
+make clean
 ```
 
 ---
@@ -57,52 +97,60 @@ make
 ## Run
 
 ```bash
-# With ESP32 connected
-./psu_gui /dev/ttyUSB0
-
-# Demo mode (no device)
+# Default port /dev/ttyUSB0; demo if port missing
 ./psu_gui
-
-# Compact toolbar-style GUI (minimal controls)
-./psu_gui_toolbar /dev/ttyUSB0
+./psu_gui_single
 ./psu_gui_toolbar
+./psu_gui_toolbar_single
+
+# Explicit serial device
+./psu_gui /dev/ttyUSB0
+./psu_gui_single /dev/ttyACM0
+./psu_gui_toolbar /dev/ttyUSB0
+./psu_gui_toolbar_single /dev/ttyUSB0
+
+# Help
+./psu_gui --help
 ```
 
-If the serial port is unavailable, the app runs in **DEMO mode** with simulated data.
+Single-channel programs only use **channel 1** on the wire (`STATUS 1`, `WRITE 1 …`, etc.).
 
 ---
 
-## Serial Protocol
+## Serial protocol
 
-The GUI communicates with the ESP32 using the text-based serial protocol:
+The GUI talks to the ESP32 with the text-based serial protocol:
 
 | Command | Description |
 | ------- | ----------- |
 | `STATUS <ch>` | Read channel status |
 | `WRITE <ch> <reg> <val>` | Write register |
-| `LINK` | Copy Ch1 to Ch2 |
+| `LINK` | Copy Ch1 to Ch2 (dual full GUI **TRACKING** only) |
 
 See the ESP32 firmware README for full protocol details.
 
 ---
 
-## Controls
+## Controls (full GUI)
 
-- **OUTPUT button** — Toggle output on/off
-- **VOLTAGE/CURRENT inputs** — Click to edit, type value, press SET or Enter
-- **TRACKING** — When enabled, copies Ch1 settings to Ch2
-- **REFRESH** — Force status poll
-
-Toolbar GUI (`psu_gui_toolbar`): compact strip with **large V and A** per channel, **ON/OFF** and **CV/CC** status, **OUT** and **SET**. **SET** opens a small modal to edit voltage and current setpoints (click outside, **CANCEL**, or **Esc** to close).
+- **OUTPUT** — Toggle output on/off  
+- **SET VOLTAGE / SET CURRENT** — Click field, type value, **SET** or **Enter**  
+- **Keypad** — Type digits; **VOLTS** / **AMPS** mode; **OK** applies (single build: keypad hide/show via top tab **`<`** / strip **`>`**)  
+- **TRACKING** — Dual `psu_gui` only: mirror Ch1 to Ch2  
+- **REFRESH** — Reserved / UI hook  
 
 ---
 
-## Code Structure
+## Code structure
 
-- **`main.c`** — SDL2 GUI, event handling, rendering
-- **`main_toolbar.c`** — Compact toolbar-style SDL2 GUI
-- **`serial_port.c/h`** — Linux serial port abstraction
-- **`psu_protocol.c/h`** — PSU command/response parsing
+| File | Role |
+| ---- | ---- |
+| `main.c` | Dual-channel full SDL2 GUI |
+| `main_single.c` | Single-channel full GUI (includes shared drawing from `main.c` with its own `main` and layout) |
+| `main_toolbar.c` | Dual-channel compact toolbar |
+| `main_toolbar_single.c` | Single-channel compact toolbar |
+| `serial_port.c` / `serial_port.h` | Linux serial port |
+| `psu_protocol.c` / `psu_protocol.h` | Commands, parsing, background poll thread |
 
 ---
 
