@@ -135,11 +135,26 @@ OK started
 Standalone SDL2 control panel for the PSU with:
 
 - **VFD display** — Voltage, current, power readouts with green-on-black style
-- **Analog gauges** — Needle gauges for V/A per channel
+- **Bar meters & temperature** — Voltage/current bars and temp strip (full GUI)
 - **Scope traces** — Real-time voltage/current waveform per channel
-- **Controls** — OUTPUT toggle, voltage/current setpoints
-- **TRACKING** — Link Ch1 settings to Ch2
+- **Controls** — OUTPUT toggle, voltage/current setpoints, keypad (full GUI)
+- **Dual vs single** — `psu_gui` / `psu_gui_toolbar` (two channels); `psu_gui_single` / `psu_gui_toolbar_single` (channel 1 only)
+- **TRACKING** — Link Ch1 settings to Ch2 (dual full GUI only)
 - **Demo mode** — Runs with simulated data if serial port unavailable
+
+Screenshots (canonical copies in [`docs/images/psu-gui/`](docs/images/psu-gui/); duplicates in `psu-gui/screenshots/`). More detail: [`psu-gui/README.md`](psu-gui/README.md).
+
+**Dual full GUI** (`psu_gui`)
+
+![Dual-channel full GUI](docs/images/psu-gui/full-gui-dual.png)
+
+**Single full GUI** (`psu_gui_single`)
+
+![Single-channel full GUI](docs/images/psu-gui/full-gui-single.png)
+
+**Dual toolbar** (`psu_gui_toolbar`)
+
+![Dual-channel toolbar GUI](docs/images/psu-gui/toolbar-dual.png)
 
 ### Dependencies
 
@@ -168,9 +183,13 @@ make
 # Demo mode (no device)
 ./psu_gui
 
-# Compact toolbar-style GUI
+# Compact toolbar-style GUI (dual channel)
 ./psu_gui_toolbar /dev/ttyUSB0
 ./psu_gui_toolbar
+
+# Single-channel variants (hardware channel 1 only)
+./psu_gui_single /dev/ttyUSB0
+./psu_gui_toolbar_single /dev/ttyUSB0
 ```
 
 ### GUI Controls
@@ -190,8 +209,10 @@ make
 - **`src/hal/`** — Board HAL: UART/RS485 pins, init
 - **`src/modbus_psu.h` / `modbus_psu.cpp`** — Register map, Modbus read/write
 - **`psu-gui/`** — SDL2 GUI application
-  - `main.c` — Full GUI with VFD display, gauges, scope
-  - `main_toolbar.c` — Compact toolbar-style GUI
+  - `main.c` — Full dual-channel GUI
+  - `main_single.c` — Full single-channel GUI
+  - `main_toolbar.c` — Compact dual-channel toolbar
+  - `main_toolbar_single.c` — Compact single-channel toolbar
   - `serial_port.c/h` — Linux serial port abstraction
   - `psu_protocol.c/h` — PSU command/response parsing
 

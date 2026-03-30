@@ -6,25 +6,25 @@ The full GUI mimics a bench-instrument style: VFD-style readouts, bar meters, te
 
 ## Screenshots
 
-All images below live under `psu-gui/screenshots/` (paths are relative to this README).
+Images are stored under **`../docs/images/psu-gui/`** (repo root) so they render correctly in **GitHub**, **Cursor/VS Code** preview, and other viewers that resolve paths from the workspace root. Duplicate copies for packaging: `psu-gui/screenshots/`.
 
 ### Full GUI — dual channel (`psu_gui`)
 
 Two **OUTPUT** panels (CH1 / CH2), shared keypad, **SYSTEM CONTROL** toolbar with **TRACKING**, header **DUAL OUTPUT DC POWER SUPPLY**.
 
-![Dual-channel full GUI: two output panels and keypad](screenshots/full-gui-dual.png)
+![Dual-channel full GUI: two output panels and keypad](../docs/images/psu-gui/full-gui-dual.png)
 
 ### Full GUI — single channel (`psu_gui_single`)
 
 Compact window: one **OUTPUT 1** panel, **CONTROL** toolbar (no tracking), title **DC POWER SUPPLY**, collapsible keypad (**`<`** on the keypad bar to hide, **`>`** strip to show again).
 
-![Single-channel full GUI: one output panel and collapsed keypad strip](screenshots/full-gui-single.png)
+![Single-channel full GUI: one output panel and collapsed keypad strip](../docs/images/psu-gui/full-gui-single.png)
 
 ### Toolbar — dual channel (`psu_gui_toolbar`)
 
 Minimal strip: **CH1** and **CH2** side by side, large V/A readouts, **SET** popup for setpoints, **OUT** per channel.
 
-![Dual-channel toolbar: CH1 and CH2 strips](screenshots/toolbar-dual.png)
+![Dual-channel toolbar: CH1 and CH2 strips](../docs/images/psu-gui/toolbar-dual.png)
 
 ### Toolbar — single channel (`psu_gui_toolbar_single`)
 
@@ -32,7 +32,7 @@ Same toolbar interaction as above, but one row (**OUT** label), **SET** / **OUT*
 
 ### Legacy filenames
 
-Older copies in the same folder may still be named `psu_gui.png` or `psu_gui_toolbar.png`; the captures above are the canonical **`full-gui-dual.png`**, **`full-gui-single.png`**, and **`toolbar-dual.png`**.
+Under `screenshots/`, older names may include `psu_gui.png` or `psu_gui_toolbar.png`. The files above match **`full-gui-dual.png`**, **`full-gui-single.png`**, and **`toolbar-dual.png`** in `docs/images/psu-gui/` and `screenshots/`.
 
 ---
 
